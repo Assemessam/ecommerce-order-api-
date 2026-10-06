@@ -99,4 +99,15 @@ Bonus 7A stops after verification. The next **separately authorized** milestone 
 - Transactional-read bypass, rollback/race/outage tests, bounded diagnostics and committed-purchase safety; unchanged authoritative checkout/cancellation locks and idempotency.
 - Real Redis/PostgreSQL tests, complete regression, Redis-enabled independent-process contention, repeatable local benchmarks, Pint/Composer/whitespace verification.
 
-Evidence and known limits are in [15-redis-caching.md](15-redis-caching.md). Stop after verification; no queues, order events, additional API throttling, frontend or new business features are implemented. Recommended next separately scoped bonus: durable order notifications with an outbox/queue design that preserves purchase idempotency and post-commit failure safety.
+Evidence and known limits are in [15-redis-caching.md](15-redis-caching.md). The 7B scope ended with catalogue caching verification. Durable order notifications are implemented in the separately scoped 7C milestone below.
+
+## Bonus Milestone 7C — Order events and background queues (implemented)
+
+- PostgreSQL transactional outbox for placement/cancellation; immutable UUID envelopes and unique order/type identities.
+- Bounded concurrency-safe claims, dedicated Redis queue, expiring ownership and crash/broker-loss recovery.
+- Laravel events, a lightweight job and local durable notification listener; transactional result/completion and idempotent effects.
+- Bounded processing retries, native failed jobs, sanitized status diagnostics and safe manual outbox retry.
+- Opt-in Compose worker/scheduler, PostgreSQL constraints and real Redis/independent-process tests.
+- Original checkout/cancellation inventory, promotion, status and replay behavior preserved.
+
+The implementation and verification are documented in [16-order-events-queues.md](16-order-events-queues.md). 7C remains uncommitted for review on its feature branch. Stop after verification: no merge, push or deployment. Recommended next separately authorized milestone: Bonus 7D API rate limiting, with endpoint-specific behavior and regression coverage.

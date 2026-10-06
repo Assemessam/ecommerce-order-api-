@@ -41,6 +41,8 @@ it('rolls back order items inventory usage and cart at every critical write boun
     expect($response->getContent())->not->toContain('Injected failure', 'private database', 'trace', 'SQLSTATE');
     expect($response->json('error.request_id'))->toBe($response->headers->get('X-Request-ID'));
     $this->assertDatabaseCount('orders', 0);
+    $this->assertDatabaseCount('order_outbox_events', 0);
+    $this->assertDatabaseCount('order_notifications', 0);
     $this->assertDatabaseCount('order_items', 0);
     $this->assertDatabaseCount('promotion_redemptions', 0);
     $this->assertDatabaseCount('cart_items', 2);
@@ -76,6 +78,8 @@ it('rolls back a database integrity failure and returns a safe 409 checkout conf
 
     expect($response->getContent())->not->toContain('SQLSTATE', 'orders_money_valid', 'trace');
     $this->assertDatabaseCount('orders', 0);
+    $this->assertDatabaseCount('order_outbox_events', 0);
+    $this->assertDatabaseCount('order_notifications', 0);
     $this->assertDatabaseCount('order_items', 0);
     $this->assertModelExists($item);
     expect($item->product->fresh()->stock_quantity)->toBe(5);
@@ -94,6 +98,8 @@ it('rolls back preceding inventory deductions if a later conditional deduction f
     expect($first->product->fresh()->stock_quantity)->toBe(5);
     expect($second->product->fresh()->stock_quantity)->toBe(5);
     $this->assertDatabaseCount('orders', 0);
+    $this->assertDatabaseCount('order_outbox_events', 0);
+    $this->assertDatabaseCount('order_notifications', 0);
     $this->assertDatabaseCount('order_items', 0);
     $this->assertDatabaseCount('cart_items', 2);
 });
@@ -109,6 +115,8 @@ it('handles a missing locked product without saving a partial purchase', functio
 
     $this->assertModelExists($item);
     $this->assertDatabaseCount('orders', 0);
+    $this->assertDatabaseCount('order_outbox_events', 0);
+    $this->assertDatabaseCount('order_notifications', 0);
 });
 
 it('handles an unresolved selected promotion without consuming inventory or usage', function () {
@@ -127,6 +135,8 @@ it('handles an unresolved selected promotion without consuming inventory or usag
     expect($item->cart->fresh()->promotion_id)->toBe($promotion->id);
     expect($item->product->fresh()->stock_quantity)->toBe($stock);
     $this->assertDatabaseCount('orders', 0);
+    $this->assertDatabaseCount('order_outbox_events', 0);
+    $this->assertDatabaseCount('order_notifications', 0);
     $this->assertDatabaseCount('promotion_redemptions', 0);
 });
 
@@ -141,6 +151,8 @@ it('returns 404 when a repository supplies a cart belonging to another customer'
 
     $this->assertModelExists($item);
     $this->assertDatabaseCount('orders', 0);
+    $this->assertDatabaseCount('order_outbox_events', 0);
+    $this->assertDatabaseCount('order_notifications', 0);
 });
 
 it('uses one transaction locks cart then ascending products then promotion and counts before inserting redemption', function () {

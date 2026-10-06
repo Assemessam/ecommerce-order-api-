@@ -4,6 +4,7 @@ namespace App\Services\Order;
 
 use App\Contracts\Repositories\OrderRepositoryInterface;
 use App\Contracts\Repositories\ProductRepositoryInterface;
+use App\Enums\OrderEventType;
 use App\Enums\OrderStatus;
 use App\Exceptions\Domain\InvalidOrderStatusException;
 use App\Exceptions\Domain\InventoryRestorationOverflowException;
@@ -19,7 +20,7 @@ use Illuminate\Support\Facades\Gate;
 
 class OrderService
 {
-    public function __construct(private OrderRepositoryInterface $orders, private ProductRepositoryInterface $products, private ProductCatalogueCache $catalogueCache) {}
+    public function __construct(private OrderRepositoryInterface $orders, private ProductRepositoryInterface $products, private ProductCatalogueCache $catalogueCache, private OrderOutboxService $outbox) {}
 
     /** @return LengthAwarePaginator<int, Order> */
     public function listOrders(User $user, int $page = 1, int $perPage = 15): LengthAwarePaginator
@@ -85,6 +86,7 @@ class OrderService
                 }
 
                 $this->orders->markCancelled($order, now('UTC'));
+                $this->outbox->record($order, OrderEventType::OrderCancelled);
                 $this->catalogueCache->invalidateAfterCommit();
 
                 return $this->orders->loadItems($order);

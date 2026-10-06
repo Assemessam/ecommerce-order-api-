@@ -145,6 +145,18 @@ return [
 
     'redis' => [
 
+        'order-events' => [
+            'url' => env('ORDER_EVENTS_REDIS_URL'),
+            'host' => env('REDIS_HOST', 'redis'),
+            'username' => env('REDIS_USERNAME'),
+            'password' => env('REDIS_PASSWORD'),
+            'port' => env('REDIS_PORT', '6379'),
+            'database' => env('ORDER_EVENTS_REDIS_DB', '4'),
+            'timeout' => 0.5,
+            'read_timeout' => 5.0,
+            'max_retries' => 0,
+        ],
+
         'catalogue' => [
             'url' => env('CATALOGUE_REDIS_URL'),
             'host' => env('REDIS_HOST', 'redis'),

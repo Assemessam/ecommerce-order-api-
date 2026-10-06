@@ -42,6 +42,9 @@
         <env name="DB_PASSWORD" value="secret" force="true"/>
         <env name="DB_URL" value="" force="true"/>
         <env name="MAIL_MAILER" value="array"/>
+        <env name="ORDER_EVENTS_REDIS_DB" value="5" force="true"/>
+        <env name="ORDER_EVENTS_REDIS_URL" value="" force="true"/>
+        <env name="ORDER_EVENTS_QUEUE" value="order-events-testing" force="true"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>

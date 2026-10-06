@@ -31,6 +31,15 @@ return [
 
     'connections' => [
 
+        'order-redis' => [
+            'driver' => 'redis',
+            'connection' => 'order-events',
+            'queue' => env('ORDER_EVENTS_QUEUE', 'order-events-'.env('APP_ENV', 'production')),
+            'retry_after' => 90,
+            'block_for' => 2,
+            'after_commit' => true,
+        ],
+
         'sync' => [
             'driver' => 'sync',
         ],

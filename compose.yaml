@@ -1,27 +1,46 @@
+x-app-runtime: &app-runtime
+  build:
+    context: .
+  user: "${UID:-1000}:${GID:-1000}"
+  working_dir: /var/www/html
+  volumes:
+    - .:/var/www/html
+  environment:
+    COMPOSER_HOME: /tmp/composer
+    DB_CONNECTION: pgsql
+    DB_HOST: postgres
+    DB_PORT: 5432
+    DB_DATABASE: ecommerce_order_api
+    DB_USERNAME: ecommerce
+    DB_PASSWORD: secret
+    REDIS_HOST: redis
+    ORDER_EVENTS_QUEUE: "${ORDER_EVENTS_QUEUE:-order-events-local}"
+    ORDER_EVENTS_QUEUE_CONNECTION: "${ORDER_EVENTS_QUEUE_CONNECTION:-order-redis}"
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
 services:
   api:
-    build:
-      context: .
-    user: "${UID:-1000}:${GID:-1000}"
-    working_dir: /var/www/html
-    volumes:
-      - .:/var/www/html
+    <<: *app-runtime
     ports:
       - "${APP_PORT:-8091}:8000"
-    environment:
-      COMPOSER_HOME: /tmp/composer
-      DB_CONNECTION: pgsql
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_DATABASE: ecommerce_order_api
-      DB_USERNAME: ecommerce
-      DB_PASSWORD: secret
-      REDIS_HOST: redis
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+
+  order-worker:
+    <<: *app-runtime
+    profiles: ["orders"]
+    command: ["sh", "-c", 'exec php artisan queue:work "$${ORDER_EVENTS_QUEUE_CONNECTION:-order-redis}" --queue="$${ORDER_EVENTS_QUEUE:-order-events-local}" --sleep=1 --timeout=30 --tries=3 --max-time=3600 --memory=128 --no-interaction']
+    stop_grace_period: 45s
+    restart: unless-stopped
+
+  order-scheduler:
+    <<: *app-runtime
+    profiles: ["orders"]
+    command: ["php", "artisan", "schedule:work", "--no-interaction"]
+    stop_grace_period: 75s
+    restart: unless-stopped
 
   redis:
     image: redis:7.4-alpine

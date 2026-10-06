@@ -53,6 +53,8 @@ it('rolls back all stock and markers when cancellation fails at a write boundary
     expect($order->fresh()->items->toArray())->toBe($snapshots);
     $this->assertDatabaseCount('cart_items', 0);
     $this->assertDatabaseCount('orders', 1);
+    $this->assertDatabaseCount('order_outbox_events', 1);
+    $this->assertDatabaseCount('order_notifications', 0);
     $this->assertDatabaseCount('order_items', 2);
 })->with(['during inventory restoration' => 'second product', 'after all stock before status' => 'updating', 'after status and markers' => 'updated', 'unexpected database error' => 'database failure']);
 

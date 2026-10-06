@@ -2,7 +2,7 @@
 
 Laravel REST API for a Senior Laravel Developer assessment: product discovery, customer authentication, carts, promotions, atomic checkout, historical orders, and cancellation. The implementation prioritizes exact money calculations, customer isolation, and PostgreSQL concurrency correctness. Submission deadline: October 13, 2026.
 
-The mandatory-scope audit is in [docs/13-final-audit.md](docs/13-final-audit.md). Secure product/promotion administration is in [docs/14-admin-management.md](docs/14-admin-management.md); current Redis catalogue caching verification is in [docs/15-redis-caching.md](docs/15-redis-caching.md). The separate employer brief is not present in this repository; the audit uses [the recorded requirements](docs/02-requirements.md) and the Milestone 7 checklist.
+The mandatory-scope audit is in [docs/13-final-audit.md](docs/13-final-audit.md). Secure product/promotion administration is in [docs/14-admin-management.md](docs/14-admin-management.md); Redis catalogue caching verification is in [docs/15-redis-caching.md](docs/15-redis-caching.md); durable order events/queues are in [docs/16-order-events-queues.md](docs/16-order-events-queues.md). The separate employer brief is not present in this repository; the audit uses [the recorded requirements](docs/02-requirements.md) and the Milestone 7 checklist.
 
 ## Stack and prerequisites
 
@@ -53,6 +53,9 @@ On Linux the bind-mounted files must be writable by the container user (default 
 | `REDIS_HOST`, `REDIS_PORT`, `CATALOGUE_REDIS_DB` | Compose `redis:6379`, catalogue DB 2; tests force DB 3 |
 | `REDIS_USERNAME`, `REDIS_PASSWORD`, `CATALOGUE_REDIS_URL` | Optional private credentials/authenticated TLS URL; keep secrets outside Git |
 | `CATALOGUE_REDIS_TIMEOUT` | 0.2-second connection/read timeouts; no catalogue client retries |
+| `ORDER_EVENTS_QUEUE_CONNECTION`, `ORDER_EVENTS_QUEUE` | Dedicated `order-redis` queue connection and `order-events-local` queue in Compose |
+| `ORDER_EVENTS_REDIS_DB`, `ORDER_EVENTS_REDIS_URL` | Separate queue DB 4 (test DB 5); optional private queue Redis URL |
+| `ORDER_EVENTS_LEASE_SECONDS`, `ORDER_EVENTS_DISPATCH_RETRY_SECONDS`, `ORDER_EVENTS_BATCH_SIZE` | Recoverable 300-second claims, 15-second broker retries and bounded 100-event relay batches |
 
 Compose environment settings override `.env` database values. Native execution requires a reachable PostgreSQL host and your own database credentials. The supplied tests intentionally require the isolated Compose host and dedicated test database; native test execution without an equivalent setup is unsupported.
 
@@ -71,13 +74,30 @@ docker compose exec -T redis redis-cli ping
 docker compose exec -T api php artisan config:clear --no-interaction
 ```
 
-Redis uses the project's private default bridge network, exposes no host port, disables persistence, and limits memory to 128 MB with allkeys-lru eviction. There is no Redis volume or database migration. Compose overrides REDIS_HOST with `redis`; native execution needs PhpRedis and a reachable Redis host or private `CATALOGUE_REDIS_URL`. Do not stop/reconfigure other Redis or PostgreSQL projects. Production Redis access should use private networking and privately supplied authentication/TLS settings.
+Redis uses the project's private default bridge network, exposes no host port, disables persistence, and limits memory to 128 MB with allkeys-lru eviction. There is no Redis volume; Bonus 7C adds two PostgreSQL outbox/result migrations. Compose overrides REDIS_HOST with `redis`; native execution needs PhpRedis and a reachable Redis host or private `CATALOGUE_REDIS_URL`. Do not stop/reconfigure other Redis or PostgreSQL projects. Production Redis access should use private networking and privately supplied authentication/TLS settings.
 
 Only `GET /api/products` (and its HEAD route) uses this cache. The service stores scalar product snapshots and totals, and the existing resource/controller builds current pagination links and JSON. Keys hash validated normalized filters, sort, page, and page size under a versioned public generation. Details and administrator listings remain live. Successful product edits/creation, stock adjustment, checkout, cancellation, and new sample seeding rotate the generation after commit; rollback and purchase/cancellation replays do not rotate it.
 
 Listings are short-lived estimates. A request already in flight may return its earlier read; failed invalidation or process failure after commit can leave earlier entries reachable until their short TTL expires. Generation changes prevent a late old reader from publishing into the current namespace. Redis outages fall back to PostgreSQL without exposing connection details or changing committed purchase results. Warnings are limited to one per namespace/minute per application filesystem; subsequent cache attempts are skipped for that request. Checkout prices, stock, locks, snapshots, promotions, and idempotency remain authoritative in PostgreSQL. Set `CATALOGUE_CACHE_ENABLED=false` and clear cached configuration to disable listing caching.
 
 Do not reset the development database or modify `postgres-local` or unrelated Docker projects. A second checkout can use a distinct Compose project name and API port for a disposable rehearsal. The optional sample seeders insert six products and seven promotions without resetting prices, stock, customers, or existing promotions. Register your own customer through the API; the default `DatabaseSeeder` creates a fixed demo customer and is deliberately not part of this setup.
+
+## Order events and background workers (Bonus 7C)
+
+Checkout and cancellation atomically record `OrderPlaced` / `OrderCancelled` envelopes in a PostgreSQL outbox. A bounded relay claims due rows with `FOR UPDATE SKIP LOCKED`, then pushes ID/token jobs to an independent Redis queue after its transaction commits. Workers create an internal notification/audit result and mark processing complete together. Unique event/result constraints and ownership tokens protect against duplicate and stale jobs. Workers never change stock, order status or promotion usage.
+
+```bash
+docker compose exec -T api php artisan migrate --no-interaction
+# Start only the optional order services after migration:
+docker compose --profile orders up -d --no-deps order-worker order-scheduler
+docker compose exec -T api php artisan orders:outbox --status=pending --no-interaction
+docker compose exec -T api php artisan queue:failed --no-interaction
+docker compose exec -T api php artisan orders:retry-outbox EVENT_UUID --no-interaction
+docker compose exec -T api php artisan orders:dispatch-outbox --no-interaction
+docker compose --profile orders stop order-worker order-scheduler
+```
+
+Redis outages preserve committed orders. Expiring PostgreSQL leases recover lost jobs/crashed workers; three normal attempts with 5/30-second backoff precede failure. Manual outbox retry refreshes ownership; native `queue:retry` alone cannot reset a failed event. Delivery is at least once with effectively-once internal effects. Events may process out of order. The local Redis instance remains disposable and shares eviction/memory across catalogue and queue DBs; a separate durable queue Redis is recommended for production. Worker startup, direct one-pass commands, diagnosis, recovery and exact verification evidence are in [docs/16-order-events-queues.md](docs/16-order-events-queues.md).
 
 ## Tests and quality checks
 
@@ -87,6 +107,12 @@ Run database suites **sequentially**. The contention tests use committed fixture
 docker compose exec -T api php artisan test --compact
 # PostgreSQL + real Redis functional, invalidation, rollback, race and outage tests:
 docker compose exec -T api php artisan test --compact tests/Feature/Services/Product/ProductCatalogueCacheTest.php
+# PostgreSQL outbox and real Redis jobs/workers, retries, recovery and crash checks:
+docker compose exec -T api php artisan test --compact \
+  tests/Feature/Services/Order/OrderOutboxServiceTest.php \
+  tests/Feature/Jobs/ProcessOrderEventTest.php \
+  tests/Feature/Services/Order/OrderOutboxConcurrencyTest.php \
+  tests/Feature/Models/OrderEventPersistenceTest.php
 # Repeatable local HTTP-kernel benchmark with 200 isolated test products:
 docker compose exec -T api php artisan test --compact --group=catalogue-benchmark
 # Standalone contention and injected retry/exhaustion cases:

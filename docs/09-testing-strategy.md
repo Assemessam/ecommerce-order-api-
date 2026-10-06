@@ -404,3 +404,11 @@ docker compose exec -T api php artisan test --compact
 ```
 
 The complete suite requires this project's Redis service and PhpRedis extension. Existing independent-process PostgreSQL contention suites are also executed with caching enabled and an isolated Redis namespace. Exact final counts, benchmark values and quality results are recorded in [15-redis-caching.md](15-redis-caching.md); earlier milestone evidence above is historical.
+
+## Bonus Milestone 7C — Outbox, worker and recovery coverage
+
+The outbox service tests cover immutable placed/cancelled envelopes, business replay, enclosing rollback and failure at the outbox write boundary. Existing checkout/cancellation fault tests additionally assert that no successful rolled-back event/result survives. Model tests prove PostgreSQL event/result uniqueness and valid ownership/completion states.
+
+`ProcessOrderEventTest` uses guarded PostgreSQL, real Redis DB 5 with per-case UUID queues, and independent Laravel queue workers. Cases cover both events, durable completion, duplicates, stale tokens/failures, transient rollback/retry, native exhausted failures/manual recovery, real refused broker connection/recovery, lost Redis jobs/claims, batch bounds, synchronous-driver rejection and a processor killed after the notification insert but before commit. Cleanup clears only the test queue; no Redis database flush is used.
+
+`OrderOutboxConcurrencyTest` observes separate PostgreSQL PIDs. Held claim transactions prove disjoint `SKIP LOCKED` batches while a parent lock is skipped; two observed row-lock waiters prove duplicate processors leave one effect. Explicit barriers and bounded observation establish concurrency rather than arbitrary sleeps. Existing overselling, promotion and cancellation contention suites remain required, including Redis-enabled catalogue operation. All suites run sequentially against the single guarded test database. Commands and exact final results are in [16-order-events-queues.md](16-order-events-queues.md).

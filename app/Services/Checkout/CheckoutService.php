@@ -8,6 +8,7 @@ use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Contracts\Repositories\PromotionRepositoryInterface;
 use App\DTOs\Cart\CartLine;
 use App\DTOs\Checkout\CheckoutResult;
+use App\Enums\OrderEventType;
 use App\Enums\ProductStatus;
 use App\Enums\PromotionIneligibilityReason;
 use App\Exceptions\Domain\CheckoutConflictException;
@@ -18,6 +19,7 @@ use App\Exceptions\Domain\PromotionNotEligibleException;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\Cart\CartPricingService;
+use App\Services\Order\OrderOutboxService;
 use App\Services\Product\ProductCatalogueCache;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
@@ -34,6 +36,7 @@ class CheckoutService
         private OrderRepositoryInterface $orders,
         private CartPricingService $pricing,
         private ProductCatalogueCache $catalogueCache,
+        private OrderOutboxService $outbox,
     ) {}
 
     public function checkout(User $user, ?string $idempotencyKey = null): CheckoutResult
@@ -110,6 +113,7 @@ class CheckoutService
                 }
 
                 $this->carts->clear($cart);
+                $this->outbox->record($order, OrderEventType::OrderPlaced);
                 $this->catalogueCache->invalidateAfterCommit();
 
                 return new CheckoutResult($this->orders->loadItems($order));
