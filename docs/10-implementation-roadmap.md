@@ -122,4 +122,8 @@ The implementation and verification are documented in [16-order-events-queues.md
 - Purchase replay remains throttled; rejected checkout/cancellation has no database/outbox effects. Queue/recovery operations are independent.
 - Real Redis HTTP/security/checkout and forced independent-process concurrency tests, complete PostgreSQL regression and existing contention/cache/queue/outbox verification.
 
-See [17-api-rate-limiting.md](17-api-rate-limiting.md) for current results and file inventory. 7D is intentionally uncommitted on `feature/api-rate-limiting-7d`. Stop after verification: no merge, push, deployment, final submission or unrelated feature work.
+See [17-api-rate-limiting.md](17-api-rate-limiting.md) for implementation results and file inventory. Milestone 7E independently verified and committed 7D on `feature/api-rate-limiting-7d` as `a21aab30064583e820c59dbb9c4bf9d5cca3fbfd`.
+
+## Milestone 7E — Final audit and submission preparation
+
+`release/ecommerce-assessment-final` starts directly from the completed 7D commit and retains all previous milestones. The independent requirements review, final quality gate, isolated fresh-clone setup and HTTP smoke evidence are recorded in [18-final-submission-review.md](18-final-submission-review.md). Final review changes remain uncommitted for approval. No merge, push, deployment or submission is performed.

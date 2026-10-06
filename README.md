@@ -2,7 +2,7 @@
 
 Laravel REST API for a Senior Laravel Developer assessment: product discovery, customer authentication, carts, promotions, atomic checkout, historical orders, and cancellation. The implementation prioritizes exact money calculations, customer isolation, and PostgreSQL concurrency correctness. Submission deadline: October 13, 2026.
 
-The mandatory-scope audit is in [docs/13-final-audit.md](docs/13-final-audit.md). Secure product/promotion administration is in [docs/14-admin-management.md](docs/14-admin-management.md); Redis catalogue caching verification is in [docs/15-redis-caching.md](docs/15-redis-caching.md); durable order events/queues are in [docs/16-order-events-queues.md](docs/16-order-events-queues.md); API rate limiting and current verification are in [docs/17-api-rate-limiting.md](docs/17-api-rate-limiting.md). The separate employer brief is not present in this repository; the audit uses [the recorded requirements](docs/02-requirements.md) and the Milestone 7 checklist.
+The current submission review, requirements matrices, fresh-clone rehearsal, and final verification are in [docs/18-final-submission-review.md](docs/18-final-submission-review.md). Earlier milestone reports remain historical evidence: [mandatory scope](docs/13-final-audit.md), [administration](docs/14-admin-management.md), [catalogue caching](docs/15-redis-caching.md), [order events/queues](docs/16-order-events-queues.md), and [API rate limiting](docs/17-api-rate-limiting.md). The separate employer brief is not present in this repository; the final review uses the supplied assessment summary and [the recorded requirements](docs/02-requirements.md).
 
 ## Stack and prerequisites
 
@@ -46,7 +46,7 @@ On Linux the bind-mounted files must be writable by the container user (default 
 | `APP_URL`, `APP_PORT` | Default host URL and port 8091; change both when changing the port |
 | `CATALOGUE_CURRENCY` | One uppercase three-letter currency label; defaults to USD; no currency conversion |
 | `DB_*` | Compose explicitly supplies pgsql / postgres:5432 / ecommerce_order_api / ecommerce / local-only password `secret` |
-| `CACHE_STORE` | Database cache, shared by authentication rate limiters |
+| `CACHE_STORE` | General application cache; HTTP throttling uses its dedicated Redis connection |
 | `CATALOGUE_CACHE_ENABLED`, `CATALOGUE_CACHE_STORE` | Public listing cache enabled; dedicated `catalogue` Redis store |
 | `CATALOGUE_CACHE_TTL` | 45-second freshness budget; configurable, clamped to 1–300 seconds; slow-read time is deducted |
 | `CATALOGUE_CACHE_NAMESPACE`, `CATALOGUE_CACHE_PREFIX`, `REDIS_PREFIX` | Separate application/environment namespaces; configure unique values when sharing Redis |
@@ -257,4 +257,4 @@ Transactions lock only the affected Product or Promotion row and keep it through
 - Category-based throttles and indefinite customer tokens are explicit assessment policies. Limiter outages fail closed with 503; Redis eviction/restarts reset allowances and fixed windows permit boundary bursts. Production infrastructure, TLS, managed secrets, backups, and broader abuse controls require a separate operational review.
 - The default customer seeder is not repeatable; use registration and the two explicit repeatable sample seeders above.
 
-No commits, pushes, or deployments are performed by the audit. Review the final diff, reconcile the recorded requirements with the employer's original brief, and follow the submission checklist in docs/13-final-audit.md.
+Bonus 7D is committed as `a21aab30064583e820c59dbb9c4bf9d5cca3fbfd`. Final review changes remain uncommitted on `release/ecommerce-assessment-final`; merge, push, deployment, and submission require separate approval. Review the final diff and the submission steps in [docs/18-final-submission-review.md](docs/18-final-submission-review.md).
