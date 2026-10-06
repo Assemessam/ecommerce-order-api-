@@ -234,6 +234,8 @@ Example 201 response (200 replay returns the same resource):
     "discount": {"amount_minor":201,"currency":"USD"},
     "total": {"amount_minor":1809,"currency":"USD"},
     "promotion": {"id":3,"code":"SAVE10","type":"percentage","value":1000,"maximum_discount":null},
+    "cancelled_at": null,
+    "inventory_restored_at": null,
     "placed_at": "2026-10-06T12:00:00.000000Z",
     "created_at": "2026-10-06T12:00:00.000000Z",
     "updated_at": "2026-10-06T12:00:00.000000Z"
@@ -245,13 +247,38 @@ Without a selected promotion, promotion is null and discount is zero. Item amoun
 
 Errors preserve the existing request ID/no-store JSON envelope: 401 UNAUTHENTICATED; 409 CART_EMPTY, PRODUCT_INACTIVE, INSUFFICIENT_STOCK, CART_TOTAL_TOO_LARGE, CHECKOUT_CONFLICT, or exhausted usage codes; 422 inactive/future/expired/minimum coupon codes; 404 missing product/unknown promotion; safe 500 INTERNAL_ERROR for unexpected failures. Any failed transaction preserves items, quantities, selected promotion, and stock and creates no partial order or consumed usage. See `11-checkout.md` for transaction/locking details.
 
-### Orders (planned; not implemented)
+### Orders (implemented in Milestone 6)
 
 | Method/path | Query/body | Success |
 |---|---|---|
 | `GET /api/orders` | `page`, `per_page` | `200` paginated own orders |
 | `GET /api/orders/{id}` | none | `200` own order with items |
 | `POST /api/orders/{id}/cancel` | none | `200` cancelled order |
+
+All three endpoints require Sanctum. History accepts only query `page` (1..2147483647) and `per_page` (1..100), default 1/15. Sort is fixed to `created_at DESC, id DESC`. Arbitrary user IDs/sort fields and GET-body pagination are ignored; only validated query pagination appears in links. Lists omit `items`, with the same stored totals/currency/status/audit fields as details. No live products/promotions or customer profile are loaded. Details eagerly load stored items.
+
+Example requests:
+
+```http
+GET /api/orders?page=1&per_page=15
+Accept: application/json
+Authorization: Bearer <token>
+
+GET /api/orders/1
+Accept: application/json
+Authorization: Bearer <token>
+
+POST /api/orders/1/cancel
+Accept: application/json
+Authorization: Bearer <token>
+```
+
+List response is `data: [OrderResource summaries]`, native Laravel `links`, and pagination `meta` as described above. GET detail has the full checkout response shape above, with nullable `cancelled_at` and `inventory_restored_at`. First/repeated cancellation has the same full shape with `status: cancelled` and equal, non-null audit timestamps; `updated_at` reflects the first cancellation and never changes on retry. See the complete JSON examples in `12-order-management.md`.
+
+POST accepts no cancellation parameters. Extra body/query values cannot change identity, quantities, snapshots, prices, status, timestamps, or restoration. Only placed orders can transition to cancelled. A repeat returns 200 without another inventory update; missing/non-owned/malformed/overflowing IDs return the same 404. Unauthenticated access returns 401, invalid list pagination 422, unsupported/inconsistent state 409 INVALID_ORDER_STATUS or ORDER_CANCELLATION_CONFLICT, restoration overflow 409 INVENTORY_RESTORATION_OVERFLOW, integrity/exhausted concurrency conflicts 409 ORDER_CANCELLATION_CONFLICT, and unexpected failures generic 500 INTERNAL_ERROR. Responses preserve error.request_id / X-Request-ID and no-store/private headers.
+
+All stock updates, status, and markers share one transaction. A failure preserves placed state and original stock; no partial restores survive. Product/item/promotional snapshots and original promotion usage are preserved. Replaying the original checkout key after cancellation returns 200 with the existing cancelled order and does not create a new purchase or consume stock/usage.
+
 
 ## Status and error mapping
 
@@ -270,7 +297,9 @@ Errors preserve the existing request ID/no-store JSON envelope: 401 UNAUTHENTICA
 | `409` | `EMPTY_CART` | Promotion application has no cart/items |
 | `409` | `CART_EMPTY` | Checkout has no cart/items |
 | `409` | `CHECKOUT_CONFLICT` | Checkout integrity/exhausted concurrency conflict |
-| `409` | `INVALID_ORDER_STATUS` | Proposed future cancellation/status conflict; not implemented |
+| `409` | `INVALID_ORDER_STATUS` | Order is not eligible for cancellation |
+| `409` | `INVENTORY_RESTORATION_OVERFLOW` | Restoring inventory exceeds signed bigint |
+| `409` | `ORDER_CANCELLATION_CONFLICT` | Inconsistent/incomplete order, integrity or remaining concurrency conflict |
 | `422` | `VALIDATION_FAILED` | Request field validation |
 | `404` | `PROMOTION_NOT_FOUND` | Unknown normalized code |
 | `422` | `PROMOTION_INACTIVE` | Code is inactive |
@@ -284,11 +313,11 @@ Errors preserve the existing request ID/no-store JSON envelope: 401 UNAUTHENTICA
 | `500` | `INTERNAL_ERROR` | Unexpected failure; details not exposed |
 | `503` | `SERVICE_UNAVAILABLE` | Optional readiness/dependency failure |
 
-Authentication, catalogue, cart, promotion, and checkout mappings/endpoints above are implemented. Order browsing/cancellation remain planned. Product endpoints use the existing validation and not-found mappings.
+Authentication, catalogue, cart, promotion, and checkout mappings/endpoints above are implemented. Order browsing/cancellation are implemented in Milestone 6. Product endpoints use the existing validation and not-found mappings.
 
 ## Resource outline
 
-A product exposes `id`, `name`, `sku`, `description`, money-valued `price`, `stock_quantity` (or a future availability abstraction), `status`, and timestamps. An order exposes ID/customer, placed status, purchase currency, subtotal, discount, total, optional historical promotion calculation inputs, purchase/audit timestamps, and item snapshots. No cancellation fields are exposed. Passwords, password hashes, internal lock/counter fields, and unrelated foreign keys are never exposed. A new token is exposed only in its registration/login issuance response.
+A product exposes `id`, `name`, `sku`, `description`, money-valued `price`, `stock_quantity` (or a future availability abstraction), `status`, and timestamps. An order exposes ID/customer, placed/cancelled status, purchase currency, subtotal, discount, total, optional historical promotion calculation inputs, purchase/audit timestamps, and item snapshots. Orders expose nullable cancelled_at and inventory_restored_at; summaries omit items. Passwords, password hashes, internal lock/counter fields, and unrelated foreign keys are never exposed. A new token is exposed only in its registration/login issuance response.
 
 ## Promotion API details (Milestone 4)
 

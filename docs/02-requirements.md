@@ -52,6 +52,7 @@ Milestone 3 implements FR-C01..C06. All cart endpoints require Sanctum and use o
 - FR-O06: Preserve product name, SKU, unit price, quantity, and line total on every order item.
 - FR-O07: Cancel an eligible order atomically and restore stock once.
 - FR-O08: Make repeated cancellation safe and prevent duplicate restoration.
+- FR-O09 (Milestone 6): Only placed → cancelled; keep promotion usage counted and replay original checkout keys as the cancelled order.
 
 ## Non-functional requirements
 

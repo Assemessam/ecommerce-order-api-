@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['user_id', 'status', 'currency', 'subtotal_minor', 'discount_minor', 'total_minor', 'promotion_id', 'promotion_code_snapshot', 'promotion_type_snapshot', 'promotion_value_snapshot', 'promotion_maximum_discount_minor_snapshot', 'idempotency_key', 'placed_at'])]
+#[Fillable(['user_id', 'status', 'currency', 'subtotal_minor', 'discount_minor', 'total_minor', 'promotion_id', 'promotion_code_snapshot', 'promotion_type_snapshot', 'promotion_value_snapshot', 'promotion_maximum_discount_minor_snapshot', 'idempotency_key', 'placed_at', 'cancelled_at', 'inventory_restored_at'])]
 class Order extends Model
 {
     /** @use HasFactory<OrderFactory> */
@@ -56,6 +56,8 @@ class Order extends Model
             'promotion_value_snapshot' => 'integer',
             'promotion_maximum_discount_minor_snapshot' => 'integer',
             'placed_at' => 'immutable_datetime',
+            'cancelled_at' => 'immutable_datetime',
+            'inventory_restored_at' => 'immutable_datetime',
         ];
     }
 }

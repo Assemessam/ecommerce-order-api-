@@ -43,5 +43,7 @@ echo json_encode([
     'body' => $response->getContent() === '' ? null : json_decode($response->getContent(), true, flags: JSON_THROW_ON_ERROR),
     'pid' => $connection->pid,
     'database' => $connection->database,
+    'order_updates' => collect(DB::getQueryLog())->filter(fn (array $query): bool => str_starts_with($query['query'], 'update "orders"'))->count(),
+    'inventory_restores' => collect(DB::getQueryLog())->filter(fn (array $query): bool => str_starts_with($query['query'], 'update "products"') && str_contains($query['query'], '+'))->count(),
     'locks' => collect(DB::getQueryLog())->filter(fn (array $query): bool => str_contains($query['query'], 'for update'))->pluck('query')->all(),
 ], JSON_THROW_ON_ERROR);

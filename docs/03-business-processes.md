@@ -60,27 +60,27 @@ Any exception rolls back the complete workflow. External calls must not occur in
 
 All workflows that touch these resources must follow the same relative order. Checkout uses three transaction attempts for detected deadlocks/serialization failures. PostgreSQL Read Committed is required. Injected PostgreSQL deadlock SQLSTATE tests verify complete rollback/retry and safe exhaustion. See `11-checkout.md` for replay and rollback details.
 
-## View orders
+## View orders (implemented in Milestone 6)
 
 1. Sanctum authenticates the customer.
 2. Policy/scope constrains queries by authenticated customer ID.
 3. Repository returns a paginated summary or one order with items.
 4. Resources expose snapshots and totals, not internal control fields.
 
-## Cancel order
+## Cancel order (implemented in Milestone 6)
 
 `OrderService` owns one database transaction:
 
 1. Resolve the order through the authenticated customer's scope.
 2. Lock the order row.
-3. If already cancelled, return it without further writes (proposed idempotent semantics).
-4. Validate that its current status is cancellable.
+3. If already cancelled, return it without further writes or changing original timestamps.
+4. Require `placed` with null cancellation/restoration markers.
 5. Load order items, sort product IDs ascending, and lock product rows in that order.
-6. Atomically mark the order `cancelled`, set `cancelled_at`, and set `inventory_restored_at`.
-7. Increment stock by ordered quantities.
+6. Increment stock by each purchased quantity with checked signed-bigint arithmetic and conditional atomic updates, including inactive products.
+7. Save `cancelled` and equal `cancelled_at` / `inventory_restored_at` in one update.
 8. Commit and return the cancelled order.
 
-The locked order row plus a non-null restoration marker prevents two requests from restoring stock twice. Promotion usage remains recorded under the current proposal.
+The locked order row plus a non-null restoration marker prevents two requests from restoring stock twice. Promotion usage remains recorded by explicit Milestone 6 decision. Cancellation locks Order → Products ascending ID, never Cart or Promotion. Checkout keeps Cart → Products ascending ID → Promotion, so no reverse shared-resource lock acquisition is introduced. Both workflows use at most three attempts for detected concurrency errors; any failure rolls back the entire transaction.
 
 ## Failure handling
 

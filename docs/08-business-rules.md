@@ -44,7 +44,7 @@ Milestone 3 implements BR-C01..C05 and cart stock rule BR-P05. GET without a per
 - BR-R07: Discount never exceeds subtotal; total never becomes negative.
 - BR-R08: Nullable usage limits mean unlimited; non-null limits must be positive.
 - BR-R09 (implemented in Milestone 5): Redemption is recorded only in the same successful checkout transaction as its real order. Applying/removing a cart code never consumes/restores/reserves usage.
-- BR-R10: Cancellation does not release promotion usage (proposed and awaiting confirmation).
+- BR-R10: Cancellation does not release promotion usage (confirmed in Milestone 6). Preserve the original ledger and discount snapshots.
 
 ## Checkout and money
 
@@ -60,17 +60,17 @@ Milestone 3 implements BR-C01..C05 and cart stock rule BR-P05. GET without a per
 ## Orders and cancellation
 
 - BR-S01: Customers can list/view only their own orders.
-- BR-S02: Milestone 5 checkout status is `placed`; the original pending/confirmed lifecycle proposal is superseded. Later status transitions remain unimplemented.
-- BR-S03: Cancellation eligibility requires Milestone 6 approval for the `placed` lifecycle.
+- BR-S02: Milestone 5 checkout status is `placed`; the original pending/confirmed lifecycle proposal is superseded. Milestone 6 adds only `cancelled`.
+- BR-S03: Only `placed` with null audit markers is eligible for cancellation.
 - BR-S04: `cancelled` is terminal in the MVP.
 - BR-S05: Cancellation restores every ordered quantity exactly once.
 - BR-S06: An order's `inventory_restored_at` must be null before restoration and set in the same transaction as stock increments.
-- BR-S07: Repeating cancellation for an already-cancelled order returns success without modifying stock (proposed idempotent behavior).
+- BR-S07: Repeating cancellation for an already-cancelled order returns success without modifying stock or original audit timestamps (implemented in Milestone 6).
 
 ## Authorization, errors, and privacy
 
 - BR-X01: Cart, checkout, and order endpoints require a valid Sanctum token.
-- BR-X02: A non-owned cart item is treated as not found to avoid identifier enumeration (implemented in Milestone 3); the same behavior remains proposed for future orders.
+- BR-X02: A non-owned cart item is treated as not found to avoid identifier enumeration (implemented in Milestone 3); the same indistinguishable 404 behavior is implemented for order detail/cancellation.
 - BR-X03: Expected business failures use stable machine-readable codes and safe messages.
 - BR-X04: Validation can reveal field-specific errors; unexpected exceptions never reveal stack traces or SQL in production.
 - BR-X05: Secrets, credentials, password values, and bearer tokens are never logged. A new bearer token is returned only in its successful registration/login issuance response; profiles and errors never expose it. Password values and hashes are never returned.
@@ -91,3 +91,15 @@ Milestone 4 implements BR-R01..R08 for estimates; BR-R09 is the future redemptio
 Milestone 5 implements BR-O01..O08 and promotion consumption under BR-R09. The relative lock order is Cart → Products ascending ID → Promotion → ledger reads/writes, under PostgreSQL Read Committed. Initial status is placed; tax/shipping/payment are excluded and total = subtotal - discount. A selected eligible promotion creates one real order-linked redemption even when the clamped discount is zero. Without selection there is no redemption. Nullable legacy order links continue to count toward global/customer limits.
 
 BR-O09: optional Idempotency-Key is scoped to the authenticated customer and permanently identifies one successful order. Replay returns the original order before empty-cart checks, even when the customer's cart has been refilled, without touching it. Failed attempts reserve no key. No body/query purchase parameters are supported, so conflicting client fields are ignored and cannot create a different purchase under that key. See `07-api-contracts.md` and `11-checkout.md`.
+
+
+## Milestone 6 cancellation invariants
+
+- BR-S08: `cancelled` requires equal non-null cancellation/restoration timestamps; `placed` requires both null. PostgreSQL rejects contradictory metadata.
+- BR-S09: Hold the owned order row lock before examining state. Lock every purchased product in ascending ID order. Restore each immutable snapshot quantity once in the same transaction as the status change.
+- BR-S10: Restore inactive products too; overflow rejects the complete cancellation with 409. Never modify snapshots/prices or recreate cart items.
+- BR-S11: Keep promotion redemptions counted, with no deletion/decrement/reapplication.
+- BR-S12: Checkout replay after cancellation returns the original cancelled order with no inventory deduction, redemption, or cart mutation.
+- BR-S13: History is owner-scoped, `created_at DESC, id DESC`, page size 15 by default / maximum 100. List omits items; details return stored purchase information.
+
+Any exception rolls back all restoration and markers; unsupported/inconsistent states and database integrity/remaining concurrency conflicts use safe 409 codes. No refund/shipping action occurs. See `12-order-management.md`.

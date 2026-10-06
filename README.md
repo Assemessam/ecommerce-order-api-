@@ -1,6 +1,6 @@
 # E-Commerce Order & Promotion API
 
-Production-oriented backend assessment for product discovery, customer carts, promotions, transactional checkout, inventory safety, orders, and cancellation. This repository contains the Laravel foundation, **Milestone 1: Authentication & API Foundation**, **Milestone 2: Product Catalogue**, **Milestone 3: Shopping Cart**, and **Milestone 4: Promotions & Discount Engine**, plus **Milestone 5: Transactional Checkout & Order Creation**. Order browsing and cancellation remain unimplemented.
+Production-oriented backend assessment for product discovery, customer carts, promotions, transactional checkout, inventory safety, orders, and cancellation. This repository contains the Laravel foundation, **Milestone 1: Authentication & API Foundation**, **Milestone 2: Product Catalogue**, **Milestone 3: Shopping Cart**, and **Milestone 4: Promotions & Discount Engine**, plus **Milestone 5: Transactional Checkout & Order Creation**. **Milestone 6: Order Management & Cancellation** adds owner-scoped history/details and exactly-once inventory restoration.
 
 ## Technology stack
 
@@ -102,12 +102,13 @@ Implemented:
 - Authenticated owner-scoped cart reads/adds/updates/deletes, exact current-price estimates, availability feedback, PostgreSQL constraints, atomic mutations, and real concurrent HTTP request tests.
 - Normalized percentage/fixed codes, PostgreSQL integrity constraints, reusable integer calculation, ledger-based eligibility, cart promotion application/removal, fresh eligibility on estimates, factories/seeder, and independent-process contention tests.
 - Atomic authenticated checkout, immutable order/item snapshots, conditional inventory deduction, locked promotion consumption, customer-scoped idempotency, rollback and real PostgreSQL concurrency tests.
+- Owner-scoped paginated order history/details, placed → cancelled transition, stock restoration with audit timestamps, preserved promotion usage/checkout replay, rollback and independent-process concurrency tests.
 
 Not implemented yet:
 
-- Order listing/detail, cancellation, and inventory restoration.
+- Payments/refunds, shipping, administration, frontend, and additional order lifecycle states.
 
-Milestone 5 is complete; stop here for review. The recommended next milestone is **Milestone 6: Orders and cancellation**, after approval of cancellation rules. See [`docs/11-checkout.md`](docs/11-checkout.md) for the checkout implementation and verification report.
+Milestone 6 is complete; stop here for review. The recommended next milestone is **Milestone 7: Hardening and submission**. See [`docs/12-order-management.md`](docs/12-order-management.md) for cancellation design, API examples, file inventory, and executed verification, and [`docs/11-checkout.md`](docs/11-checkout.md) for the historical checkout report.
 
 ## Product catalogue
 
@@ -317,4 +318,35 @@ docker compose exec -T api php artisan test --compact tests/Feature/Services/Che
 docker compose exec -T api php artisan test --compact
 ```
 
-Order factories support isolated tests; development never seeds fictional purchase history. The nullable unique redemption order FK preserves legacy ledger records; every successful checkout writes a non-null real order FK. Detailed [API examples](docs/07-api-contracts.md), [schema](docs/06-database-design.md), and the [checkout report with concurrency evidence](docs/11-checkout.md) document constraints, rollback, isolation assumptions, and trade-offs. Order browsing, cancellation, and inventory restoration remain for the next milestone.
+Order factories support isolated tests; development never seeds fictional purchase history. The nullable unique redemption order FK preserves legacy ledger records; every successful checkout writes a non-null real order FK. Detailed [API examples](docs/07-api-contracts.md), [schema](docs/06-database-design.md), and the [checkout report with concurrency evidence](docs/11-checkout.md) document constraints, rollback, isolation assumptions, and trade-offs. Order browsing, cancellation, and inventory restoration are implemented in Milestone 6 below.
+
+
+## Order management and cancellation (Milestone 6)
+
+Apply the additive migration with `docker compose exec -T api php artisan migrate --no-interaction`. All endpoints require a Sanctum bearer token:
+
+| Method | Endpoint | Success |
+|---|---|---|
+| GET | `/api/orders?page=1&per_page=15` | 200, own summaries with `data`, `links`, `meta` |
+| GET | `/api/orders/{id}` | 200, own historical order and item snapshots |
+| POST | `/api/orders/{id}/cancel` | 200, cancelled order including items; same response on retry |
+
+History defaults to 15 per page, accepts at most 100, and sorts `created_at DESC, id DESC`. Only validated query pagination is preserved in links; arbitrary `user_id` and sort fields are ignored. Summaries omit `items`; details/cancellation use persisted names, SKUs, prices, quantities, totals, currency, and promotion inputs. Missing and non-owned orders have the same 404. Invalid pagination returns 422.
+
+```bash
+curl 'http://localhost:8091/api/orders?page=1&per_page=15' -H 'Authorization: Bearer <token>' -H 'Accept: application/json'
+curl http://localhost:8091/api/orders/1 -H 'Authorization: Bearer <token>' -H 'Accept: application/json'
+curl -X POST http://localhost:8091/api/orders/1/cancel -H 'Authorization: Bearer <token>' -H 'Accept: application/json'
+```
+
+Only `placed → cancelled` is supported. One service transaction locks **Order → Products ascending ID**, restores exact purchased quantities including inactive products, then saves status and equal `cancelled_at` / `inventory_restored_at` timestamps. PostgreSQL enforces coherent cancellation metadata. A repeated/concurrent request locks and sees the cancelled state, returns 200, and performs no stock or timestamp writes. Overflow is a safe 409; any failure rolls back every stock update and marker. Cart contents, product prices, snapshots, and promotion usage remain unchanged. The old checkout idempotency key returns the existing cancelled order with no additional purchase or redemption.
+
+Rollback to the placed-only schema intentionally refuses retained cancelled orders. Use forward fixes for retained deployments; do not relabel cancelled purchases or lose restoration evidence.
+
+```bash
+docker compose exec -T api php artisan test --compact tests/Feature/Http/Controllers/Api/OrderControllerTest.php tests/Feature/Services/Order/OrderServiceTest.php tests/Feature/Models/OrderCancellationTest.php tests/Feature/Policies/OrderPolicyTest.php
+docker compose exec -T api php artisan test --compact tests/Feature/Services/Order/OrderConcurrencyTest.php
+docker compose exec -T api php artisan test --compact
+```
+
+Run suites sequentially against the one isolated PostgreSQL test database. Concurrency tests reuse the guarded HTTP-kernel worker with committed fixtures, distinct process/connection IDs, and two observed lock waiters before barrier release. See the milestone report for exact evidence and the interview explanation.

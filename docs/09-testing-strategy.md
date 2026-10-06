@@ -35,7 +35,7 @@ Use factories and `LazilyRefreshDatabase` (or `RefreshDatabase` when needed) for
 
 ### Concurrency tests
 
-Run separate database connections/processes against PostgreSQL with barriers so requests genuinely overlap. Milestone 5 verifies checkout contention and idempotency; cancellation cases remain planned and unverified. See `11-checkout.md` for the current execution evidence:
+Run separate database connections/processes against PostgreSQL with barriers so requests genuinely overlap. Milestone 5 verifies checkout contention/idempotency; Milestone 6 verifies cancellation and cancellation versus checkout. See `11-checkout.md` and `12-order-management.md` for executed evidence:
 
 1. Stock 5; checkout quantities 4 and 3 concurrently; assert at most one incompatible allocation succeeds and final stock is never negative.
 2. Promotion global limit 1; two eligible customers check out concurrently; assert one usage/order discount succeeds.
@@ -375,3 +375,12 @@ Git remains uncommitted: 18 tracked modified files and 59 untracked files (expan
 ## Milestone 5 executed verification
 
 The checkout controller, service, order-integrity, and independent-process checkout suites cover atomic purchase creation, shared integer pricing, snapshots, promotion consumption, owner-scoped replay, PostgreSQL constraints, five rollback boundaries, ordered locks, four observed-barrier contention scenarios, and bounded retries/exhaustion after injected PostgreSQL errors. No existing tests were deleted; one legacy-ledger assertion now checks nullable real-order compatibility. Full execution results, backend PIDs/outcomes, limitations, and file inventory are in [`11-checkout.md`](11-checkout.md). Earlier milestone reports above remain historical.
+
+
+## Milestone 6 executed verification
+
+OrderControllerTest covers token protection, ownership, pagination/validation, deterministic newest-first summaries, snapshot details, no private/live relations, idempotent cancellation, inactive restoration, preserved promotion ledger, and old-key checkout replay. OrderServiceTest injects failures during a later restore, before status saving, after status/markers, and a real unexpected database error; it checks no surviving partial inventory or markers. It also covers overflow, conditional-update refusal, defensive inconsistent/missing states, policy enforcement, safe integrity conflict, transaction levels, ordered locks, and bounded query counts. OrderCancellationTest checks PostgreSQL state constraints, exact signed-bigint boundaries, upgrade history preservation, and honest downgrade refusal. OrderPolicyTest exercises the complete owner/foreign-owner ability matrix.
+
+OrderConcurrencyTest reuses the existing guarded Symfony PHP worker and independent PostgreSQL connections with committed fixtures. The observer requires two distinct active lock waiters before releasing an order/product barrier. Same-owner cancellation proves one status update and one stock restoration, with identical 200 responses. Cancellation/checkout overlap and reverse-insertion multiple products verify exact final inventory and ascending product locks. Two injected PostgreSQL deadlock cases exercise whole-transaction retries/exhaustion; these injections are distinct from real contention tests. Worker telemetry now includes successful order UPDATE and inventory increment counts without binding values.
+
+The downgrade guard intentionally refuses retained cancelled orders. Concurrency teardown truncates only order fixtures and their dependent test history in the guarded test database before DatabaseMigrations rollback. Run all suites sequentially, never concurrently on the shared test database. Exact final results and backend PID evidence are in `12-order-management.md`. Earlier milestone reports remain historical.

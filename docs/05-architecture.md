@@ -189,4 +189,15 @@ Locked products replace each cart item's product relation before the shared Cart
 
 Cart rows remain after checkout so all supported mutations/replays share the same serialization point. Customer-scoped keys have database uniqueness and permanent replay semantics; body parameters are ignored so no request fingerprint is needed. OrderResources serialize stored snapshots only, and initial responses reload persisted values to match replay timestamps. PostgreSQL Read Committed is required. The four real process/barrier tests and two injected PostgreSQL deadlock tests are documented in `11-checkout.md`.
 
-Earlier milestone sections above preserve the design state at their delivery; their references to future checkout are superseded by this section. Cancellation remains unimplemented and requires new lifecycle approval.
+Earlier milestone sections above preserve the design state at their delivery; their references to future checkout are superseded by this section. Milestone 6 cancellation is implemented below.
+
+
+## Milestone 6 order management decisions
+
+OrderController delegates query validation to OrderQueryRequest and list/detail/cancellation to OrderService. Existing OrderResource/OrderItemResource serialize historical snapshots; list pagination never loads items or live products/promotions. OrderPolicy is auto-discovered and denies foreign owners as 404. Every repository lookup is ownership-scoped; policy checks add defense if a repository supplies the wrong owner.
+
+OrderRepositoryInterface / EloquentOrderRepository add `paginateForUser`, `findForUser`, `lockForUser`, and `markCancelled`. Repository locking, eager loading, ordering, and writes remain persistence concerns. ProductRepositoryInterface adds `restoreStock`, a positive-quantity, conditional atomic increment bounded by signed bigint. It neither chooses order states nor coordinates cancellation.
+
+OrderService owns state rules, inventory overflow checks, and `DB::transaction(..., attempts: 3)`. Cancellation takes Order → Products ascending ID, restores snapshots, and updates status/timestamps before committing. It takes no cart/promotion locks and touches no ledger. A cancelled row returns immediately without inventory writes. No CancellationResult DTO is needed because first and repeated cancellations have the same 200/resource contract. Existing CheckoutResult remains unchanged.
+
+The additive migration enforces placed/null markers versus cancelled/equal non-null markers, adds the owner/creation-date/ID index, and preserves earlier records and FKs. PostgreSQL constraints/locks remain the integrity boundary; no application locks, Redis, cache, or external effects are introduced. See `12-order-management.md` for trade-offs, rollback refusal, failure evidence, and concurrency results.

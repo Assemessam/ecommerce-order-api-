@@ -8,10 +8,38 @@ use App\DTOs\Cart\CartView;
 use App\Enums\OrderStatus;
 use App\Models\Order;
 use App\Models\User;
+use Carbon\CarbonInterface;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 
 class EloquentOrderRepository implements OrderRepositoryInterface
 {
+    /** @return LengthAwarePaginator<int, Order> */
+    public function paginateForUser(User $user, int $page, int $perPage): LengthAwarePaginator
+    {
+        return Order::query()->whereBelongsTo($user)->orderByDesc('created_at')->orderByDesc('id')
+            ->paginate($perPage, ['*'], 'page', $page);
+    }
+
+    public function findForUser(User $user, int $id): ?Order
+    {
+        return Order::query()->whereBelongsTo($user)->with('items')->find($id);
+    }
+
+    public function lockForUser(User $user, int $id): ?Order
+    {
+        return Order::query()->whereBelongsTo($user)->lockForUpdate()->with('items')->find($id);
+    }
+
+    public function markCancelled(Order $order, CarbonInterface $cancelledAt): void
+    {
+        $order->update([
+            'status' => OrderStatus::Cancelled,
+            'cancelled_at' => $cancelledAt,
+            'inventory_restored_at' => $cancelledAt,
+        ]);
+    }
+
     public function findByIdempotencyKey(User $user, string $key): ?Order
     {
         return Order::query()->whereBelongsTo($user)->where('idempotency_key', $key)->with('items')->first();

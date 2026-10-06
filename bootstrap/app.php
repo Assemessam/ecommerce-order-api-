@@ -9,6 +9,9 @@ use App\Exceptions\Domain\EmptyCartException;
 use App\Exceptions\Domain\InactiveProductException;
 use App\Exceptions\Domain\InsufficientStockException;
 use App\Exceptions\Domain\InvalidCredentialsException;
+use App\Exceptions\Domain\InvalidOrderStatusException;
+use App\Exceptions\Domain\InventoryRestorationOverflowException;
+use App\Exceptions\Domain\OrderCancellationConflictException;
 use App\Exceptions\Domain\PromotionNotEligibleException;
 use App\Http\Middleware\ApiRequestContext;
 use Illuminate\Foundation\Application;
@@ -55,6 +58,9 @@ return Application::configure(basePath: dirname(__DIR__))
                 $exception instanceof CartConflictException,
                 $exception instanceof CheckoutConflictException,
                 $exception instanceof EmptyCartException,
+                $exception instanceof InvalidOrderStatusException,
+                $exception instanceof InventoryRestorationOverflowException,
+                $exception instanceof OrderCancellationConflictException,
                 $exception instanceof CartTotalTooLargeException => 409,
                 default => $response->getStatusCode(),
             };
@@ -93,6 +99,14 @@ return Application::configure(basePath: dirname(__DIR__))
                 $error = ['code' => 'CART_EMPTY', 'message' => 'The cart must contain at least one item.'];
             } elseif ($exception instanceof CheckoutConflictException) {
                 $error = ['code' => 'CHECKOUT_CONFLICT', 'message' => 'Checkout could not be completed. Refresh the cart and try again.'];
+            }
+
+            if ($exception instanceof InvalidOrderStatusException) {
+                $error = ['code' => 'INVALID_ORDER_STATUS', 'message' => 'The order is not eligible for cancellation.'];
+            } elseif ($exception instanceof InventoryRestorationOverflowException) {
+                $error = ['code' => 'INVENTORY_RESTORATION_OVERFLOW', 'message' => 'Restoring inventory would exceed the supported integer range.'];
+            } elseif ($exception instanceof OrderCancellationConflictException) {
+                $error = ['code' => 'ORDER_CANCELLATION_CONFLICT', 'message' => 'The order could not be cancelled. Refresh the order and try again.'];
             }
 
             if ($exception instanceof ValidationException) {

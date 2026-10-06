@@ -1,6 +1,6 @@
 # 06 — Database Design
 
-Products, carts/items, promotions/redemption ledger, and orders/items are implemented in Milestones 2–5 alongside the existing Laravel/Sanctum tables. Cancellation fields remain out of scope.
+Products, carts/items, promotions/redemption ledger, and orders/items are implemented in Milestones 2–5 alongside the existing Laravel/Sanctum tables. Milestone 6 adds cancellation timestamps and coherent state constraints.
 
 ## Conventions
 
@@ -96,7 +96,7 @@ Migrations: `2026_10_06_142158_create_promotions_table.php` and `2026_10_06_1422
 |---|---|
 | `id` | Generated bigint identity PK |
 | `user_id` | Required FK to users; RESTRICT deletion |
-| `status` | varchar(16), default and CHECK `placed`; OrderStatus enum |
+| `status` | varchar(16), default `placed`; CHECK `placed` or `cancelled`; OrderStatus enum |
 | `currency` | Required three uppercase ASCII letters; purchase-time deployment currency |
 | `subtotal_minor`, `discount_minor`, `total_minor` | Required bigint; nonnegative, discount <= subtotal, total = subtotal - discount |
 | `promotion_id` | Nullable FK; RESTRICT deletion; indexed |
@@ -105,9 +105,10 @@ Migrations: `2026_10_06_142158_create_promotions_table.php` and `2026_10_06_1422
 | `promotion_maximum_discount_minor_snapshot` | Nullable positive bigint purchase-time cap |
 | `idempotency_key` | Nullable varchar(128); valid ASCII format; unique together with user_id |
 | `placed_at` | Required timestamptz(6) |
+| `cancelled_at`, `inventory_restored_at` | Additive nullable timestamptz(6); both equal/non-null iff cancelled |
 | `created_at`, `updated_at` | timestampsTz audit fields |
 
-Indexes: unique `(user_id, idempotency_key)` permits multiple NULL keys and serves owner/key lookups; `(user_id, placed_at, id)` supports future history; `promotion_id` serves the FK. PostgreSQL checks enforce money, currency, status, key format, and coherent promotion snapshots. No selection means zero discount and NULL promotion snapshots. No payment/cancellation/restoration fields are added.
+Indexes: unique `(user_id, idempotency_key)` permits multiple NULL keys and serves owner/key lookups; `(user_id, placed_at, id)` supports future history; `promotion_id` serves the FK. PostgreSQL checks enforce money, currency, status, key format, and coherent promotion snapshots. No selection means zero discount and NULL promotion snapshots. Milestone 6 adds only cancellation/restoration timestamps, plus `(user_id, created_at, id)` for implemented history sorting. No payment fields are added.
 
 ### `order_items` (implemented in Milestone 5)
 
@@ -148,3 +149,10 @@ Migrations: `2026_10_06_151221_create_orders_table.php`, `2026_10_06_151222_crea
 ## Integrity and deletion policy
 
 Catalogue and promotion records should normally be deactivated, not deleted. Orders and usage records are audit data and should not be cascade-deleted as routine account cleanup. Exact privacy/retention handling remains an open business requirement.
+
+
+## Milestone 6 additive cancellation schema
+
+`2026_10_06_153712_add_cancellation_metadata_to_orders_table.php` preserves all existing orders/items/redemptions and adds nullable microsecond time-zone-aware `cancelled_at` / `inventory_restored_at` plus `(user_id, created_at, id)`. It widens `orders_status_valid` to placed/cancelled and adds `orders_cancellation_state_valid`: placed requires both markers NULL; cancelled requires both non-NULL and equal. The existing FK, money, snapshot, key uniqueness, quantity, and nonnegative-stock constraints remain intact. The separate status CHECK still rejects every other lifecycle value.
+
+The marker is audit evidence, not proof of stock changes by itself: service transactions and order-row locks link restoration to the transition. A supported cancellation commits stock increments and markers together. Upgrade tests preserve existing purchases, snapshots, redemptions, and keys. Downgrade refuses existing cancelled rows before dropping metadata, rather than disguising restored inventory as placed; retained deployments should use forward fixes. Isolated concurrency teardown deletes its committed test fixtures before framework migration rollback.

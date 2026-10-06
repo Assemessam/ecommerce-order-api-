@@ -56,11 +56,11 @@ Review gate: promotion arithmetic and limits accepted before checkout integratio
 
 Review gate: contention tests prove no oversell/overuse and failure injection proves atomicity.
 
-## Milestone 6 — Orders and cancellation
+## Milestone 6 — Orders and cancellation (implemented)
 
-- Confirm statuses/cancellable states.
-- Implement owner-scoped list/detail and `OrderService` cancellation transaction.
-- Add restoration marker, status constraints, repeated/concurrent cancellation tests.
+- Approved `placed → cancelled`, terminal cancellation, no release of promotion usage.
+- Implemented owner-scoped list/detail and `OrderService` cancellation transaction.
+- Added restoration timestamps, state constraints, history index, repeated/concurrent cancellation, rollback, overflow, and checkout-replay tests.
 
 Review gate: inventory restores exactly once.
 
@@ -84,4 +84,4 @@ Review gate: inventory restores exactly once.
 
 ## Next recommended milestone
 
-Milestone 5 is implemented and stops here. The recommended next milestone is **Milestone 6: Orders and cancellation**: owner-scoped list/detail, approved cancellable states for the `placed` lifecycle, and exactly-once inventory restoration. No cancellation or next-milestone code is included. See `11-checkout.md` for checkout evidence.
+Milestone 6 is implemented and stops here. The recommended next milestone is **Milestone 7: Hardening and submission**: fresh-clone setup, production configuration and query/retention review, and final submission preparation. No bonus features or additional milestone code is included. See `12-order-management.md` for order/cancellation evidence.

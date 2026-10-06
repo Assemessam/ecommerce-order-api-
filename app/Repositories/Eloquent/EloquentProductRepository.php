@@ -68,6 +68,16 @@ class EloquentProductRepository implements ProductRepositoryInterface
         return Product::query()->whereKey($ids)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
     }
 
+    public function restoreStock(Product $product, int $quantity): bool
+    {
+        if ($quantity < 1) {
+            throw new InvalidArgumentException('Inventory restoration must be positive.');
+        }
+
+        return Product::query()->whereKey($product->id)->where('stock_quantity', '<=', PHP_INT_MAX - $quantity)
+            ->increment('stock_quantity', $quantity) === 1;
+    }
+
     public function deductStock(Product $product, int $quantity): bool
     {
         if ($quantity < 1) {

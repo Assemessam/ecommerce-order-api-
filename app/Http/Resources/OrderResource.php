@@ -30,6 +30,8 @@ class OrderResource extends JsonResource
                     'amount_minor' => $this->promotion_maximum_discount_minor_snapshot, 'currency' => $this->currency,
                 ],
             ],
+            'cancelled_at' => $this->cancelled_at?->toISOString(),
+            'inventory_restored_at' => $this->inventory_restored_at?->toISOString(),
             'placed_at' => $this->placed_at->toISOString(),
             'created_at' => $this->created_at->toISOString(),
             'updated_at' => $this->updated_at->toISOString(),

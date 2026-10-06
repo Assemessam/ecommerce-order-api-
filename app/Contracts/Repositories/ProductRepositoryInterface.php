@@ -23,5 +23,7 @@ interface ProductRepositoryInterface
      */
     public function lockByIds(array $ids): Collection;
 
+    public function restoreStock(Product $product, int $quantity): bool;
+
     public function deductStock(Product $product, int $quantity): bool;
 }
