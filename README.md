@@ -1,6 +1,6 @@
 # E-Commerce Order & Promotion API
 
-Production-oriented backend assessment for product discovery, customer carts, promotions, transactional checkout, inventory safety, orders, and cancellation. This repository contains the Laravel foundation and **Milestone 1: Authentication & API Foundation**. Commerce domains remain unimplemented.
+Production-oriented backend assessment for product discovery, customer carts, promotions, transactional checkout, inventory safety, orders, and cancellation. This repository contains the Laravel foundation, **Milestone 1: Authentication & API Foundation**, and **Milestone 2: Product Catalogue**. Cart, promotions, checkout, orders, and cancellation remain unimplemented.
 
 ## Technology stack
 
@@ -72,7 +72,7 @@ docker compose exec -T api composer validate --strict
 docker compose exec -T api composer audit
 ```
 
-Authentication tests use the dedicated PostgreSQL database `ecommerce_order_api_test` and `LazilyRefreshDatabase`. PHPUnit overrides both environment and server variables so Compose development settings cannot redirect tests to `ecommerce_order_api`. The base test case refuses an unexpected database target before migrations or refresh operations. No static analyzer is currently installed or configured.
+Database-sensitive tests use the dedicated PostgreSQL database `ecommerce_order_api_test` and `LazilyRefreshDatabase`. PHPUnit overrides both environment and server variables so Compose development settings cannot redirect tests to `ecommerce_order_api`. The base test case refuses an unexpected database target before migrations or refresh operations. No static analyzer is currently installed or configured.
 
 ## Architecture
 
@@ -97,12 +97,51 @@ Implemented:
 - Registration, login, current customer, and current-token logout.
 - Form Requests, UserResource, AuthService, and a container-bound user repository.
 - JSON error envelopes, request IDs, password policy, and authentication rate limiting.
+- Public active-product list/detail, literal name search, minor-unit price filters, availability, allow-listed sorting, and bounded pagination.
+- Product Service/Repository, PostgreSQL integrity constraints, factory, repeatable sample seeder, and catalogue tests.
 
 Not implemented yet:
 
-- Products, carts, promotions, checkout, orders, inventory deduction, and cancellation.
+- Carts, promotions, checkout, orders, inventory deduction, and cancellation.
 
-The next recommended milestone is **Milestone 2: Product catalogue**, after reviewing Milestone 1. Remaining business proposals are recorded in [`docs/01-business-discovery.md`](docs/01-business-discovery.md); no checkout or order decisions were changed.
+The next recommended milestone is **Milestone 3: Cart**, after reviewing the catalogue contract. Remaining business proposals are recorded in [`docs/01-business-discovery.md`](docs/01-business-discovery.md); no checkout or order decisions were changed.
+
+## Product catalogue
+
+Both endpoints are public: `GET /api/products` returns `data`, `links`, and Laravel pagination `meta`; `GET /api/products/{id}` returns one resource under `data`. Missing, inactive, malformed, and overflowing IDs return the existing JSON 404 envelope. Active products with zero stock remain visible.
+
+Run the additive migration and, optionally, seed only catalogue samples:
+
+```bash
+docker compose exec -T api php artisan migrate --no-interaction
+docker compose exec -T api php artisan db:seed --class=ProductSeeder --no-interaction
+```
+
+Use `ProductSeeder` directly to avoid the existing customer seeder. It inserts six demo SKUs covering both statuses and stock states, skips existing demo records, and neither resets prices/inventory nor changes customers. Repeated runs do not duplicate products.
+
+| Query | Contract |
+|---|---|
+| `search` | Trimmed, case-insensitive literal substring of name; maximum 100 characters; empty means no search |
+| `min_price`, `max_price` | Inclusive integer minor units, 0..9223372036854775807; minimum must not exceed maximum |
+| `available` | `1`/`true`: stock > 0; `0`/`false`: stock = 0; omitted: both; inactive products always excluded |
+| `sort` | `name`, `price`, `created_at`; default `created_at` |
+| `direction` | `asc`/`desc`; default `desc`; ID breaks ties in the same direction |
+| `page` | Integer 1..2147483647; default 1 |
+| `per_page` | Integer 1..100; default 15 |
+
+Invalid query values return 422 `VALIDATION_FAILED` with `error.details.fields`. Supplied empty values are invalid except for `search`. Unknown query keys are ignored and omitted from pagination links. GET request bodies do not override query parameters. Links preserve validated filters. Sorting uses PostgreSQL's configured collation; search uses `ILIKE` with escaped `%`, `_`, and backslash.
+
+Prices are stored as signed `bigint` `price_minor`, preserving the approved database design rather than adding a duplicate `price` column. Resources expose `"price":{"amount_minor":1899,"currency":"USD"}`; `1899` means 18.99 in a currency with two minor-unit digits. Filters never accept major-unit decimals or use floating-point conversion. `CATALOGUE_CURRENCY` defaults to `USD` through `config/catalogue.php`; it labels the single deployment currency and performs no conversion.
+
+Public product fields are exactly `id`, `name`, `sku`, nullable `description`, money-valued `price`, `stock_quantity`, `status`, `created_at`, and `updated_at`. SKUs are trimmed/uppercased by the model, and a PostgreSQL unique index on `lower(btrim(sku))` prevents case/space duplicate imports. Database checks forbid negative price/stock, unsupported status, and blank SKU. Composite indexes support status-scoped ID, price, name, and created-date ordering. Substring search has no specialized index until measured need justifies one.
+
+The original FR-P03 requirement for name/SKU/description search is preserved in `docs/02-requirements.md`; this milestone explicitly implements name search only. See `docs/07-api-contracts.md` for response examples and the full contract.
+
+Focused catalogue tests:
+
+```bash
+docker compose exec -T api php artisan test --compact tests/Feature/Http/Controllers/Api/ProductControllerTest.php tests/Feature/Models/ProductTest.php tests/Feature/Repositories/Eloquent/EloquentProductRepositoryTest.php tests/Feature/Services/Product/ProductServiceTest.php tests/Feature/Database/Seeders/ProductSeederTest.php
+```
 
 ## Authentication
 

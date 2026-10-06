@@ -139,4 +139,16 @@ The existing API proposal used DELETE logout; the explicit Milestone 1 contract 
 - Checkout idempotency remains optional in the proposed contract, and no persistence design exists for retry keys. Resolve the key transport, uniqueness, replay response, payload mismatch, and retention before checkout. Database inventory safety alone does not define safe replay semantics.
 - BR-X05 previously said bearer tokens are never returned; auth necessarily returns a newly issued token once. The rule now distinguishes issuance responses from profile/error/log disclosure.
 
-No additional business services, tables, checkout, or order code were introduced.
+The review findings above concern the Milestone 1 scope. Milestone 2 adds only the product catalogue components described below; checkout and order code remain unimplemented.
+
+
+## Milestone 2 catalogue decisions
+
+- `ProductController` injects `ProductService`, accepts `ProductQueryRequest` for listing, and returns `ProductResource`/a native paginated resource collection. Detail IDs deliberately go through the service/repository rather than implicit Eloquent binding, preserving the approved flow.
+- A readonly `ProductQuery` DTO carries search, integer price bounds, nullable availability, sort/direction, and explicit page/page size. Form Request validation uses query parameters only; it creates the DTO after validation and exact cross-field range comparison.
+- `ProductService::listProducts()` supplies `ProductStatus::Active` to `ProductRepositoryInterface::paginate(ProductQuery, ProductStatus)`. `getProduct(string)` validates bigint-compatible positive IDs, invokes `findById(int)`, and rejects missing/inactive products with transport-independent `ModelNotFoundException`; the existing renderer maps it to 404.
+- `EloquentProductRepository` builds bound queries, maps the public sort allow-list to fixed SQL columns, escapes search wildcards, and applies deterministic secondary ID ordering. It independently rejects unchecked sort/direction values from non-HTTP callers. The container binds the product repository interface alongside the unchanged user repository.
+- `Product` has explicit fillable fields, integer price/stock casts, a backed status enum, and trimmed/uppercase SKU normalization. There are no speculative relations, admin routes, global visibility scopes, inventory mutations, or read transactions.
+- The approved database field is `price_minor`; public `price` is an integer money object. A single configured deployment currency defaults to USD. Native PostgreSQL identity and time-zone-aware timestamps follow the database design; existing framework migrations are unchanged.
+- Static PostgreSQL DDL is limited to migration CHECKs and normalized-SKU uniqueness. Query indexes support public ordering; substring-search optimization awaits measured need.
+- Service tests use repository mocks to isolate visibility rules, while API/repository/integrity/seeder tests exercise the dedicated real PostgreSQL test database. The standalone product seeder preserves existing sample and unrelated records and never calls the customer seeder.

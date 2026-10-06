@@ -4,11 +4,11 @@
 
 1. Client sends search/filter/sort/page parameters.
 2. Form Request validates types, ranges, and allow-listed sort values.
-3. Product service passes a query DTO to the repository.
-4. Repository applies active-product visibility and returns a paginator.
+3. Product service passes a query DTO and the active visibility policy to the repository.
+4. Repository applies the requested status plus validated filters, sorting, and pagination, and returns a paginator.
 5. Product resources return stable public fields and pagination metadata.
 
-This is read-only and has no transaction boundary.
+Milestone 2 implements this process. Detail lookup goes through the service and repository; the service treats inactive/missing products as not found. Active zero-stock products remain visible unless availability is filtered. These operations are read-only and have no transaction boundary.
 
 ## Maintain cart
 

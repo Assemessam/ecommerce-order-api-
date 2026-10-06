@@ -57,7 +57,7 @@ These are design proposals, not silently invented requirements.
 - Confirm order statuses and exactly which statuses customers may cancel.
 - Confirm whether a coupon is consumed on order creation and whether cancellation releases that usage. The proposal is **do not release usage**, preserving auditability and preventing reuse abuse.
 - Confirm case sensitivity and normalization rules for SKUs and promotion codes. The proposal is trim and uppercase promotion codes, with case-insensitive uniqueness.
-- Confirm whether discontinued products remain visible by direct ID. The proposal is to hide inactive products from public catalogue endpoints.
+- Milestone 2 confirms that inactive products are hidden from both public list and direct-ID details (404). Active zero-stock products remain visible unless availability is filtered.
 - Confirm retention, privacy, and customer-account deletion requirements.
 
 ## Success measures

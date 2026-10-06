@@ -2,7 +2,9 @@
 
 namespace App\Providers;
 
+use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Contracts\Repositories\UserRepositoryInterface;
+use App\Repositories\Eloquent\EloquentProductRepository;
 use App\Repositories\Eloquent\EloquentUserRepository;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -18,6 +20,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->bind(ProductRepositoryInterface::class, EloquentProductRepository::class);
         $this->app->bind(UserRepositoryInterface::class, EloquentUserRepository::class);
     }
 

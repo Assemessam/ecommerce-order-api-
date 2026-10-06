@@ -3,12 +3,20 @@
 ## Catalogue and inventory
 
 - BR-P01: Public catalogue endpoints return only active products.
-- BR-P02: SKU is required and unique under the proposed case-insensitive normalization.
+- BR-P02 (implemented in Milestone 2): SKU is required/nonblank; Eloquent trims and uppercases it. PostgreSQL uniqueness on `lower(btrim(sku))` rejects equivalent imports even when they bypass the model.
 - BR-P03: Product price and stock are non-negative integers.
 - BR-P04: Cart quantity and order-item quantity are positive integers.
 - BR-P05: A cart operation rejects a quantity above the currently visible stock but does not reserve it.
 - BR-P06: Checkout revalidates stock while holding product row locks.
 - BR-P07: Stock can never be negative; both service logic and a database check constraint enforce this.
+
+Milestone 2 confirms BR-P01..P03. Availability means **active and positive stock**; active zero-stock products remain visible by default, `available=false` selects only active zero-stock products, and inactive products never appear publicly, regardless of inventory. Inactive details return 404. Catalogue reads never reserve or deduct stock and require no transaction.
+
+- BR-P08: Name search is a trimmed literal case-insensitive substring; empty means unfiltered. SKU/description search remains the original FR-P03 requirement outside this milestone's delivered scope.
+- BR-P09: Price bounds are inclusive integer minor units matching `price.amount_minor`; negatives, decimals, overflow, and reversed ranges return 422.
+- BR-P10: Public sorting permits only name, price, and creation date in ascending/descending order; ID breaks ties in the same direction. Default is newest first. Pagination defaults to 15 and rejects page sizes above 100.
+- BR-P11: Product status is the closed `ProductStatus` enum (`active`, `inactive`), mirrored by a database CHECK. Database CHECKs and NOT NULL constraints preserve price/stock/status/SKU integrity independently of Eloquent.
+- BR-P12: Sample catalogue seeding may insert missing demo SKUs but must not overwrite existing product inventory/prices or change customer records.
 
 ## Cart
 

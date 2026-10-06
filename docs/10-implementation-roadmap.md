@@ -19,13 +19,15 @@ Exit gate: dependencies install, Compose services start, PostgreSQL migrations s
 
 Review gate: security model, response envelope, and error mapping are frozen.
 
-## Milestone 2 — Product catalogue
+## Milestone 2 — Product catalogue (implemented; awaiting review)
 
 - Add product enum, migration/constraints, model, factory, seeder.
 - Add repository contract/implementation, query DTO, service, requests, resources, and controllers.
 - Implement allow-listed search/filter/sort/pagination and tests.
 
-Review gate: catalogue contract and indexing plan validated.
+Implemented: active-only public list/detail, name-only literal case-insensitive search, integer minor-unit filters, availability semantics, safe name/price/date ordering, stable pagination, PostgreSQL constraints, configured deployment currency, and repeatable standalone product seeding. Original FR-P03 SKU/description search is preserved but deferred by the explicit milestone scope. Verification results are recorded in `09-testing-strategy.md`.
+
+Review gate: accept the catalogue contract and indexing plan before cart implementation. No cart, promotion, checkout, order, or stock-mutation functionality was added.
 
 ## Milestone 3 — Cart
 
@@ -79,4 +81,4 @@ Review gate: inventory restores exactly once.
 
 ## Next recommended milestone
 
-After Milestone 1 review, implement **Milestone 2: Product catalogue**. Keep cart, promotions, checkout, orders, and cancellation behind their separate review gates.
+After catalogue review, implement **Milestone 3: Cart**. Keep cart, promotions, checkout, orders, and cancellation behind their separate review gates.

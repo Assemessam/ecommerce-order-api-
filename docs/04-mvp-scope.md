@@ -26,7 +26,7 @@
 
 1. Foundation and reviewed design documents (completed).
 2. Authentication and shared API/error conventions (implemented; review checkpoint).
-3. Product catalogue.
+3. Product catalogue (implemented in Milestone 2; review checkpoint).
 4. Cart.
 5. Promotions.
 6. Checkout and concurrency controls.

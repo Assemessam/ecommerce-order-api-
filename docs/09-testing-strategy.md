@@ -98,7 +98,7 @@ docker compose exec -T api php artisan test --compact tests/Feature/Http/Control
 
 Token lifecycle tests use actual persisted Sanctum tokens and Authorization headers. Between sequential protected requests they clear cached authentication guards to model independent HTTP requests. Rate-limit tests freeze/advance time without sleeping; test cache is isolated per application. Transactions roll back test records.
 
-No static analysis tool is installed or configured. Commerce and real concurrency tests remain planned for later milestones and are not claimed as implemented.
+No static analysis tool is installed or configured. Product catalogue API, service, repository, integrity, and seeder tests are implemented in Milestone 2 below. Cart, promotions, checkout, orders, cancellation, and real concurrency tests remain planned for later milestones and are not claimed as implemented.
 
 
 ## Milestone 1 executed verification
@@ -116,3 +116,42 @@ On October 6, 2026, using the existing Compose app container:
 | API route inspection | Health plus the four required auth endpoints |
 
 The development database remained at zero users and zero tokens. `postgres-local` remained running with the same container ID/start time and zero restarts. No Docker configuration, dependency, migration, commit, or push was introduced by Milestone 1.
+
+
+## Milestone 2 catalogue coverage and executed verification
+
+Catalogue tests use the same isolated PostgreSQL database and unchanged safety guard as authentication. Test files:
+
+- `tests/Feature/Http/Controllers/Api/ProductControllerTest.php`: active public list/detail, zero-stock visibility, literal case-insensitive name search, wildcard/SQL-fragment handling, inclusive/combined price bounds, exact large integers, availability variants, every sort/direction and ID tie-breaker, default/max/page navigation, retained filters, empty/beyond-last pages, query-only validation, unknown-key isolation, every query validation boundary, missing/inactive/malformed/overflow IDs, configured currency, and exact public resource fields.
+- `tests/Feature/Models/ProductTest.php`: enum/integer casts, SKU normalization, unique normalized SKU enforced even for raw inserts, non-negative price/stock, allowed status, nonblank SKU, NOT NULL boundaries, zero and maximum signed bigint money.
+- `tests/Feature/Repositories/Eloquent/EloquentProductRepositoryTest.php`: real PostgreSQL combined filtering/pagination, interface binding, explicit service-supplied status, detail lookup, and rejecting sort/direction injection from non-HTTP callers.
+- `tests/Feature/Services/Product/ProductServiceTest.php`: isolated repository mocks demonstrate query propagation, active policy, successful detail lookup, and missing/inactive/invalid-ID behavior without HTTP responses or database access.
+- `tests/Feature/Database/Seeders/ProductSeederTest.php`: repeated sample seeding, mixed stock/status fixtures, existing sample price/stock preservation, and no customer/unrelated-product changes.
+
+Run the focused catalogue suite:
+
+```bash
+docker compose exec -T api php artisan test --compact tests/Feature/Http/Controllers/Api/ProductControllerTest.php tests/Feature/Models/ProductTest.php tests/Feature/Repositories/Eloquent/EloquentProductRepositoryTest.php tests/Feature/Services/Product/ProductServiceTest.php tests/Feature/Database/Seeders/ProductSeederTest.php
+```
+
+On October 6, 2026, using the existing Docker Compose environment:
+
+| Check | Executed result |
+|---|---|
+| Complete preflight suite | 62 passed, 306 assertions; 1.14s |
+| Focused catalogue suite | 110 passed, 455 assertions; 1.57s |
+| Complete PostgreSQL suite after Pint, including authentication | 172 passed, 761 assertions; 2.45s |
+| `vendor/bin/pint --dirty --format agent` | Passed |
+| `composer validate --strict` | `./composer.json is valid` |
+| `composer audit` | No security vulnerability advisories found |
+| Additive development `php artisan migrate --no-interaction` | Product migration applied successfully |
+| Route inspection | Seven API routes: health, four authentication routes, two catalogue routes |
+| Live HTTP checks | Products 200 with native empty pagination; oversized page size 422; missing product 404; health 200; request IDs/no-store headers present |
+| Development records after verification | Zero users, zero tokens, zero products; samples exercised only in isolated tests |
+| Unrelated `postgres-local` | Same container ID/start time, running, zero restarts |
+
+The initial focused run found a test-only attribute-array ordering mismatch; comparing database-loaded before/after snapshots corrected it, and the seeder test was rerun successfully. No implementation-related failures remain.
+
+The product migration was verified against real PostgreSQL: generated bigint identity, time-zone-aware timestamps, normalized unique SKU, four CHECK constraints, and four status-led composite indexes. Development migration was additive; destructive test refreshes used only `ecommerce_order_api_test`. No customer seeder was run in development. No dependencies, Docker configuration, commits, or pushes were introduced.
+
+Known limits: original FR-P03 SKU/description search remains deferred by the explicit name-only milestone scope. There is no specialized substring-search index or representative-load performance benchmark. No static analyzer is installed. No cart/order/concurrency functionality is claimed by this milestone.

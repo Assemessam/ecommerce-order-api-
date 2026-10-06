@@ -10,6 +10,10 @@
 - FR-P04: Filter by minimum/maximum price and availability.
 - FR-P05: Sort only by an allow-list of fields and directions.
 
+Milestone 2 implements FR-P01, FR-P02, FR-P04, and FR-P05. The explicit milestone request limits FR-P03 delivery to case-insensitive product **name** search. The original broader name/SKU/description requirement above remains unchanged for traceability; SKU/description search is deferred. Storage uses the approved `price_minor` column, while the public resource calls its money object `price`.
+
+Implemented catalogue contract: active-only visibility; zero-stock active products visible by default; `available=true` means positive stock, `available=false` means zero stock; inclusive integer minor-unit prices; sorts `name`, `price`, `created_at` with `asc`/`desc` and an ID tie-breaker; default page size 15, maximum 100. Invalid query inputs return 422 in the Milestone 1 envelope. See `07-api-contracts.md` for exact limits and response examples.
+
 ### Authentication and authorization
 
 - FR-A01: Authenticate customers with Laravel Sanctum tokens.
