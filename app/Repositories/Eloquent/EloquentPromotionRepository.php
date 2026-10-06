@@ -6,10 +6,48 @@ use App\Contracts\Repositories\PromotionRepositoryInterface;
 use App\Models\Order;
 use App\Models\Promotion;
 use App\Models\PromotionRedemption;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use InvalidArgumentException;
 
 class EloquentPromotionRepository implements PromotionRepositoryInterface
 {
+    public function paginate(int $page, int $perPage, ?bool $isActive): LengthAwarePaginator
+    {
+        $promotions = Promotion::query()->withCount('redemptions');
+
+        if ($isActive !== null) {
+            $promotions->where('is_active', $isActive);
+        }
+
+        return $promotions->orderByDesc('created_at')->orderByDesc('id')->paginate($perPage, ['*'], 'page', $page);
+    }
+
+    public function findById(int $id): ?Promotion
+    {
+        return Promotion::query()->withCount('redemptions')->find($id);
+    }
+
+    public function create(array $attributes): Promotion
+    {
+        return Promotion::query()->create($attributes)->refresh()->loadCount('redemptions');
+    }
+
+    public function update(Promotion $promotion, array $attributes): Promotion
+    {
+        $promotion->update($attributes);
+
+        return $promotion->refresh()->loadCount('redemptions');
+    }
+
+    public function maximumCustomerRedemptions(Promotion $promotion): int
+    {
+        $count = PromotionRedemption::query()->whereBelongsTo($promotion)
+            ->selectRaw('COUNT(*) AS usage_count')->groupBy('user_id')
+            ->orderByDesc('usage_count')->toBase()->first();
+
+        return (int) ($count?->usage_count ?? 0);
+    }
+
     public function findByCode(string $normalizedCode): ?Promotion
     {
         return Promotion::query()->where('code', $normalizedCode)->first();

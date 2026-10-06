@@ -12,4 +12,6 @@ interface UserRepositoryInterface
     public function findByEmail(string $email): ?User;
 
     public function updatePassword(User $user, string $passwordHash): void;
+
+    public function grantAdministrator(User $user): void;
 }

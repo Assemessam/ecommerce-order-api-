@@ -1,0 +1,1089 @@
+{
+  "info": {
+    "name": "Ecommerce Order & Promotion API",
+    "description": "Assessment API examples. Set base_url (no /api suffix), a fresh local customer_email, and a private customer_password (12+ characters with mixed case, a number and symbol; <=72 bytes). Optional ProductSeeder and PromotionSeeder supply demonstration data. This sequence lists stocked products, captures IDs, deletes then re-adds a cart line, applies/removes a promotion, checks out, reads/cancels the order, and logs out. WELCOME10 must be eligible. The first checkout generates a key only when blank; preserve it for retries and clear it for a different purchase. Registration is not repeatable with the same email. On replay after refilling, the old key returns the original order and leaves the cart untouched. Run individual requests as needed. Scripts capture only safe integer IDs; large bigint responses require a lossless JSON client. Credentials and captured tokens must stay local and be cleared before sharing/export. JSON/route/script validation does not mean Postman execution was verified.\n\nBonus 7A: Admin management is a separate folder with its own admin_bearer_token. Register an account locally, run admin:grant for that existing email with APP_ENV=local, then set private admin_email/admin_password and run Admin login. Admin product and promotion creation require unique SKU/code values. PATCH stock_adjustment is an additive, non-idempotent operation; do not blindly rerun it after an uncertain response. No public admin registration or DELETE routes exist.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{bearer_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8091",
+      "type": "string"
+    },
+    {
+      "key": "bearer_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "product_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cart_item_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "order_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "promotion_code",
+      "value": "WELCOME10",
+      "type": "string"
+    },
+    {
+      "key": "idempotency_key",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "customer_email",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "customer_password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_email",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_bearer_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_product_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_promotion_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_sku",
+      "value": "ADMIN-DEMO-01",
+      "type": "string"
+    },
+    {
+      "key": "admin_promotion_code",
+      "value": "ADMIN-DEMO-10",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health and authentication",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/health",
+            "description": "Public health response. Expected success: 200.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect([200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Register customer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/register",
+            "description": "Set a fresh email and a strong private password. Duplicate email or invalid fields: 422. Throttle: 429. Expected success: 201.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Assessment Customer\",\n  \"email\": \"{{customer_email}}\",\n  \"password\": \"{{customer_password}}\",\n  \"password_confirmation\": \"{{customer_password}}\",\n  \"device_name\": \"Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [201]', () => pm.expect([201]).to.include(pm.response.code));",
+                  "if ([200, 201].includes(pm.response.code)) {",
+                  "    const result = pm.response.json().data;",
+                  "    pm.test('Token issued', () => pm.expect(result.token).to.be.a('string').and.not.empty);",
+                  "    if (typeof result.token === 'string' && result.token.length > 0) {",
+                  "        pm.collectionVariables.set('bearer_token', result.token);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "description": "Use the registered credentials. Wrong credentials: 401; invalid input: 422; throttle: 429. Expected success: 200.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{customer_email}}\",\n  \"password\": \"{{customer_password}}\",\n  \"device_name\": \"Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect([200]).to.include(pm.response.code));",
+                  "if ([200, 201].includes(pm.response.code)) {",
+                  "    const result = pm.response.json().data;",
+                  "    pm.test('Token issued', () => pm.expect(result.token).to.be.a('string').and.not.empty);",
+                  "    if (typeof result.token === 'string' && result.token.length > 0) {",
+                  "        pm.collectionVariables.set('bearer_token', result.token);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Current customer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/me",
+            "description": "Requires the captured bearer token. Missing/revoked token: 401. Expected success: 200."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect([200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Catalogue",
+      "item": [
+        {
+          "name": "List products",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/products?available=true&sort=price&direction=asc&page=1&per_page=15",
+            "description": "Public active catalogue. Script chooses a product with stock >=2 for quantity update. Optional filters: search (name/SKU/description), min_price/max_price (integer minor units). Invalid filters: 422. Expected success: 200.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect([200]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) {",
+                  "    const product = pm.response.json().data.find(item => item.status === 'active' && item.stock_quantity >= 2);",
+                  "    pm.test('A stocked example product exists', () => pm.expect(product).to.be.an('object'));",
+                  "    if (product && Number.isSafeInteger(product.id)) {",
+                  "        pm.collectionVariables.set('product_id', String(product.id));",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Product details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/products/{{product_id}}",
+            "description": "Requires a chosen active product ID. Missing/inactive/malformed ID: 404. Expected success: 200.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect([200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Cart and promotions",
+      "item": [
+        {
+          "name": "Retrieve cart",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/cart",
+            "description": "Returns current estimates; an absent cart is empty without a database write. Expected success: 200."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect([200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Add cart item",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/cart/items",
+            "description": "Requires product_id with stock. Adds one; merges an existing line. Invalid JSON integers: 422; inactive/insufficient stock: 409. Expected success: 201.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": {{product_id}},\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [201]', () => pm.expect([201]).to.include(pm.response.code));",
+                  "if ([200, 201].includes(pm.response.code)) {",
+                  "    const items = pm.response.json().data.items;",
+                  "    const item = items.find(line => String(line.product.id) === pm.collectionVariables.get('product_id'));",
+                  "    pm.test('Selected product has a cart line', () => pm.expect(item).to.be.an('object'));",
+                  "    if (item && Number.isSafeInteger(item.id)) {",
+                  "        pm.collectionVariables.set('cart_item_id', String(item.id));",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Update cart item",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/cart/items/{{cart_item_id}}",
+            "description": "Replaces quantity with two; selected product needs stock >=2. Foreign/missing line: 404; insufficient stock: 409. Expected success: 200.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect([200]).to.include(pm.response.code));",
+                  "if ([200, 201].includes(pm.response.code)) {",
+                  "    const items = pm.response.json().data.items;",
+                  "    const item = items.find(line => String(line.product.id) === pm.collectionVariables.get('product_id'));",
+                  "    pm.test('Selected product has a cart line', () => pm.expect(item).to.be.an('object'));",
+                  "    if (item && Number.isSafeInteger(item.id)) {",
+                  "        pm.collectionVariables.set('cart_item_id', String(item.id));",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Delete cart item",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/cart/items/{{cart_item_id}}",
+            "description": "Removes the owned line without modifying inventory; foreign/missing line: 404. Expected success: 204."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [204]', () => pm.expect([204]).to.include(pm.response.code));",
+                  "pm.test('Empty response body', () => pm.expect(pm.response.text()).to.equal(''));",
+                  "if (pm.response.code === 204) { pm.collectionVariables.unset('cart_item_id'); }"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Add item for checkout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/cart/items",
+            "description": "Re-adds one item after the deletion example so checkout has a nonempty cart. Expected success: 201.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": {{product_id}},\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [201]', () => pm.expect([201]).to.include(pm.response.code));",
+                  "if ([200, 201].includes(pm.response.code)) {",
+                  "    const items = pm.response.json().data.items;",
+                  "    const item = items.find(line => String(line.product.id) === pm.collectionVariables.get('product_id'));",
+                  "    pm.test('Selected product has a cart line', () => pm.expect(item).to.be.an('object'));",
+                  "    if (item && Number.isSafeInteger(item.id)) {",
+                  "        pm.collectionVariables.set('cart_item_id', String(item.id));",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Apply promotion",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/cart/promotion",
+            "description": "Requires a nonempty purchasable cart and eligible promotion_code. WELCOME10 is supplied by PromotionSeeder. Unknown: 404; date/minimum/activity invalid: 422; empty/invalid cart or exhausted limit: 409. Expected success: 200.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{promotion_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect([200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Remove promotion",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/cart/promotion",
+            "description": "Idempotently clears selection without consuming usage or changing stock. Apply a code again manually before checkout to demonstrate a discounted purchase. Expected success: 204."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [204]', () => pm.expect([204]).to.include(pm.response.code));",
+                  "pm.test('Empty response body', () => pm.expect(pm.response.text()).to.equal(''));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Checkout and orders",
+      "item": [
+        {
+          "name": "Checkout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotency_key}}"
+              }
+            ],
+            "url": "{{base_url}}/api/checkout",
+            "description": "Requires a nonempty cart for a new key. No purchase body is accepted. Server prices, stock and promotion eligibility are revalidated. 201 creates a purchase, 200 replays the original order (including cancelled). Old keys preserve a refilled cart. Empty/stock/usage conflicts: 409; malformed header: 422. Expected success: 201, 200."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get('idempotency_key')) {",
+                  "    pm.collectionVariables.set('idempotency_key', 'assessment-' + pm.variables.replaceIn('{{$guid}}'));",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [201, 200]', () => pm.expect([201, 200]).to.include(pm.response.code));",
+                  "if ([200, 201].includes(pm.response.code)) {",
+                  "    const order = pm.response.json().data;",
+                  "    pm.test('Order ID can be captured exactly', () => pm.expect(Number.isSafeInteger(order.id)).to.be.true);",
+                  "    if (Number.isSafeInteger(order.id)) {",
+                  "        pm.collectionVariables.set('order_id', String(order.id));",
+                  "    }",
+                  "    if (pm.response.code === 201) { pm.collectionVariables.unset('cart_item_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Order history",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/orders?page=1&per_page=15",
+            "description": "Owner-scoped newest-first paginated summaries without items. Invalid page inputs: 422. Expected success: 200."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect([200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Order details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/orders/{{order_id}}",
+            "description": "Requires captured owned order_id. Returns persisted snapshots. Missing/foreign ID: 404. Expected success: 200."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect([200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Cancel order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/orders/{{order_id}}/cancel",
+            "description": "Placed -> cancelled; repeated requests return stable timestamps with no further inventory restoration. Promotion usage stays consumed. Missing/foreign ID: 404; invalid state/restoration overflow: 409. Expected success: 200."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect([200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Logout",
+      "item": [
+        {
+          "name": "Logout current token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/logout",
+            "description": "Revokes only the current token; reusing it gives 401. Placed last to preserve authorization for the examples. Expected success: 204."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [204]', () => pm.expect([204]).to.include(pm.response.code));",
+                  "pm.test('Empty response body', () => pm.expect(pm.response.text()).to.equal(''));",
+                  "if (pm.response.code === 204) { pm.collectionVariables.unset('bearer_token'); }"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin product and promotion management",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{admin_bearer_token}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "Admin login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "description": "Requires an existing locally provisioned administrator. Credentials and captured admin token remain private. Expected success: 200.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\",\n  \"device_name\": \"postman-admin\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect(pm.response.code).to.equal(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json().data;",
+                  "  if (typeof data.token === 'string') pm.collectionVariables.set('admin_bearer_token', data.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List admin products",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/admin/products?per_page=15&sort=created_at&direction=desc",
+            "description": "Includes active and inactive products; optional status=active or inactive. Expected success: 200."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create admin product",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/admin/products",
+            "description": "Set a unique admin_sku before creation. Captures admin_product_id. Expected success: 201.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Admin Demo Product\",\n  \"sku\": \"{{admin_sku}}\",\n  \"description\": \"Managed through the admin API\",\n  \"price_minor\": 1899,\n  \"stock_quantity\": 10,\n  \"status\": \"active\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [201]', () => pm.expect(pm.response.code).to.equal(201));",
+                  "if (pm.response.code === 201) {",
+                  "  const data = pm.response.json().data;",
+                  "  if (Number.isSafeInteger(data.id)) pm.collectionVariables.set('admin_product_id', String(data.id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get admin product",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/admin/products/{{admin_product_id}}",
+            "description": "Requires captured admin_product_id; inactive products are readable. Expected success: 200."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Update admin product and adjust stock",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/admin/products/{{admin_product_id}}",
+            "description": "Requires captured admin_product_id. Adds three units under a row lock; this delta is non-idempotent and repeats add again. Use negative deltas for removal. Absolute stock_quantity is rejected. Expected success: 200.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Admin Demo Product\",\n  \"price_minor\": 2099,\n  \"description\": null,\n  \"status\": \"inactive\",\n  \"stock_adjustment\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List admin promotions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/admin/promotions?per_page=15",
+            "description": "Includes inactive promotions and redemptions_count; optional is_active=true or false. Expected success: 200."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create admin promotion",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/admin/promotions",
+            "description": "Set a unique admin_promotion_code. Percentage value=1000 means ten percent. Captures admin_promotion_id. Expected success: 201.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{admin_promotion_code}}\",\n  \"type\": \"percentage\",\n  \"value\": 1000,\n  \"minimum_cart_amount_minor\": 0,\n  \"maximum_discount_minor\": 2500,\n  \"starts_at\": null,\n  \"expires_at\": null,\n  \"global_usage_limit\": 100,\n  \"per_customer_usage_limit\": 1,\n  \"is_active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [201]', () => pm.expect(pm.response.code).to.equal(201));",
+                  "if (pm.response.code === 201) {",
+                  "  const data = pm.response.json().data;",
+                  "  if (Number.isSafeInteger(data.id)) pm.collectionVariables.set('admin_promotion_id', String(data.id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get admin promotion",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/admin/promotions/{{admin_promotion_id}}",
+            "description": "Requires captured admin_promotion_id; returns aggregate usage without customer ledger identities. Expected success: 200."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Update admin promotion",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/admin/promotions/{{admin_promotion_id}}",
+            "description": "Requires captured admin_promotion_id. Limit reductions below consumed usage return 409. Edits affect future eligibility; historical snapshots and redemption records remain unchanged. Expected success: 200.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"fixed\",\n  \"value\": 500,\n  \"maximum_discount_minor\": null,\n  \"starts_at\": null,\n  \"expires_at\": null,\n  \"global_usage_limit\": 100,\n  \"per_customer_usage_limit\": 2,\n  \"is_active\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP status [200]', () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    }
+  ]
+}

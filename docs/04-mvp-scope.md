@@ -15,7 +15,7 @@
 ## Explicitly out of scope
 
 - Frontend, mobile client, or server-rendered UI.
-- Admin/product/promotion/order-management APIs.
+- Admin order-management APIs. Product/promotion administration is a separately authorized Bonus 7A addition below.
 - Payment gateway, refunds, invoices, tax engine, shipping rates, fulfillment integration, or emails.
 - Product variants, categories, images, bundles, wishlists, reviews, guest carts, multiple currencies, or multiple warehouses.
 - Stacked promotions, product-specific promotions, gift cards, or reservation expiry.
@@ -52,3 +52,7 @@ Milestone 5 delivers transactional checkout/order creation, inventory deduction,
 
 
 Milestone 6 delivers owner-scoped history/details and concurrency-safe placed → cancelled restoration, preserving snapshots, promotion accounting, and checkout idempotency. It stops before payments, refunds, shipping, administration, frontend, caching, email, or additional lifecycle states. See `12-order-management.md`.
+
+## Bonus 7A — Delivered scope
+
+The mandatory MVP exclusions above describe its original boundaries. Bonus 7A adds secure administrator product/promotion management, safe stock adjustments, future promotion editing, local provisioning, PostgreSQL concurrency tests, documentation and Postman examples. It stops before Redis caching, background order queues or additional rate limiting. See [14-admin-management.md](14-admin-management.md).

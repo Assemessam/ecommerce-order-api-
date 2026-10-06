@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Api\AdminProductController;
+use App\Http\Controllers\Api\AdminPromotionController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CartPromotionController;
@@ -7,7 +9,21 @@ use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductController;
+use App\Models\Product;
+use App\Models\Promotion;
 use Illuminate\Support\Facades\Route;
+
+Route::middleware('auth:sanctum')->prefix('admin')->name('admin.')->group(function (): void {
+    Route::get('/products', [AdminProductController::class, 'index'])->can('viewAny', Product::class)->name('products.index');
+    Route::get('/products/{id}', [AdminProductController::class, 'show'])->whereNumber('id')->can('view', Product::class)->name('products.show');
+    Route::post('/products', [AdminProductController::class, 'store'])->can('create', Product::class)->name('products.store');
+    Route::patch('/products/{id}', [AdminProductController::class, 'update'])->whereNumber('id')->can('update', Product::class)->name('products.update');
+
+    Route::get('/promotions', [AdminPromotionController::class, 'index'])->can('viewAny', Promotion::class)->name('promotions.index');
+    Route::get('/promotions/{id}', [AdminPromotionController::class, 'show'])->whereNumber('id')->can('view', Promotion::class)->name('promotions.show');
+    Route::post('/promotions', [AdminPromotionController::class, 'store'])->can('create', Promotion::class)->name('promotions.store');
+    Route::patch('/promotions/{id}', [AdminPromotionController::class, 'update'])->whereNumber('id')->can('update', Promotion::class)->name('promotions.update');
+});
 
 Route::get('/health', HealthController::class)->name('health');
 

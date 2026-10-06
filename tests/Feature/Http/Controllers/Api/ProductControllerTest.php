@@ -47,13 +47,29 @@ describe('listing', function () {
         $this->getJson('/api/products?per_page=100')->assertOk()->assertJsonCount(16, 'data')->assertJsonPath('meta.per_page', 100);
     });
 
-    it('searches only names using case-insensitive literal substrings', function () {
-        $matching = Product::factory()->create(['name' => 'Wireless KEYBOARD']);
-        Product::factory()->create(['name' => 'Mouse', 'sku' => 'KEYBOARD-SKU', 'description' => 'A keyboard companion']);
+    it('searches names SKUs and descriptions using case-insensitive literal substrings', function () {
+        $nameMatch = Product::factory()->create(['name' => 'Wireless KEYBOARD']);
+        $skuMatch = Product::factory()->create(['name' => 'Mouse', 'sku' => 'KEYBOARD-SKU', 'description' => null]);
+        $descriptionMatch = Product::factory()->create(['name' => 'Desk Mat', 'description' => 'A keyboard companion']);
         Product::factory()->inactive()->create(['name' => 'Keyboard']);
+        Product::factory()->create(['name' => 'Travel Mug', 'description' => null]);
 
-        $this->getJson('/api/products?search=%20keyBOard%20')->assertOk()
-            ->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $matching->id);
+        $this->getJson('/api/products?search=%20keyBOard%20&sort=created_at&direction=asc')->assertOk()
+            ->assertJsonCount(3, 'data')->assertJsonPath('data.0.id', $nameMatch->id)
+            ->assertJsonPath('data.1.id', $skuMatch->id)->assertJsonPath('data.2.id', $descriptionMatch->id);
+    });
+
+    it('keeps SKU and description search grouped with visibility price and availability filters', function () {
+        $skuMatch = Product::factory()->create(['name' => 'Keyboard', 'sku' => 'DESK-KBD', 'price_minor' => 2000]);
+        $descriptionMatch = Product::factory()->create(['name' => 'Lamp', 'description' => 'For your desk', 'price_minor' => 2500]);
+        Product::factory()->inactive()->create(['sku' => 'DESK-INACTIVE', 'description' => 'Desk accessory', 'price_minor' => 2200]);
+        Product::factory()->outOfStock()->create(['sku' => 'DESK-EMPTY', 'price_minor' => 2200]);
+        Product::factory()->create(['description' => 'Desk accessory', 'price_minor' => 4000]);
+        Product::factory()->create(['sku' => 'DESK-CHEAP', 'price_minor' => 1000]);
+
+        $this->getJson('/api/products?search=desk&min_price=2000&max_price=2500&available=true&sort=price&direction=asc')
+            ->assertOk()->assertJsonCount(2, 'data')->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('data.0.id', $skuMatch->id)->assertJsonPath('data.1.id', $descriptionMatch->id);
     });
 
     it('ignores empty search strings', function (string $search) {
@@ -64,8 +80,8 @@ describe('listing', function () {
     })->with(['empty' => '', 'whitespace' => '   ']);
 
     it('treats search wildcards and SQL fragments as literal text', function (string $search, string $name) {
-        $matching = Product::factory()->create(['name' => $name]);
-        Product::factory()->create(['name' => 'Ordinary Product']);
+        $matching = Product::factory()->create(['name' => $name, 'sku' => 'MATCHING-SKU', 'description' => null]);
+        Product::factory()->create(['name' => 'Ordinary Product', 'sku' => 'ORDINARY-SKU', 'description' => null]);
 
         $this->getJson('/api/products?'.http_build_query(['search' => $search]))
             ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $matching->id);

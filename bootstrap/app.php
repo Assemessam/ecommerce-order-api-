@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\PromotionIneligibilityReason;
+use App\Exceptions\Domain\AdministrationConflictException;
 use App\Exceptions\Domain\CartConflictException;
 use App\Exceptions\Domain\CartTotalTooLargeException;
 use App\Exceptions\Domain\CheckoutConflictException;
@@ -10,9 +11,11 @@ use App\Exceptions\Domain\InactiveProductException;
 use App\Exceptions\Domain\InsufficientStockException;
 use App\Exceptions\Domain\InvalidCredentialsException;
 use App\Exceptions\Domain\InvalidOrderStatusException;
+use App\Exceptions\Domain\InventoryAdjustmentConflictException;
 use App\Exceptions\Domain\InventoryRestorationOverflowException;
 use App\Exceptions\Domain\OrderCancellationConflictException;
 use App\Exceptions\Domain\PromotionNotEligibleException;
+use App\Exceptions\Domain\PromotionUsageLimitConflictException;
 use App\Http\Middleware\ApiRequestContext;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -54,6 +57,9 @@ return Application::configure(basePath: dirname(__DIR__))
                 $exception instanceof InvalidCredentialsException => 401,
                 $exception instanceof EmailAlreadyRegisteredException => 422,
                 $exception instanceof InsufficientStockException,
+                $exception instanceof AdministrationConflictException,
+                $exception instanceof InventoryAdjustmentConflictException,
+                $exception instanceof PromotionUsageLimitConflictException,
                 $exception instanceof InactiveProductException,
                 $exception instanceof CartConflictException,
                 $exception instanceof CheckoutConflictException,
@@ -80,6 +86,14 @@ return Application::configure(basePath: dirname(__DIR__))
             };
 
             $error = ['code' => $code, 'message' => $message];
+
+            if ($exception instanceof AdministrationConflictException) {
+                $error = ['code' => 'ADMINISTRATION_CONFLICT', 'message' => 'The resource could not be modified. Refresh it and try again.'];
+            } elseif ($exception instanceof InventoryAdjustmentConflictException) {
+                $error = ['code' => 'INVENTORY_ADJUSTMENT_CONFLICT', 'message' => 'The adjustment would make inventory negative or exceed the supported integer range.'];
+            } elseif ($exception instanceof PromotionUsageLimitConflictException) {
+                $error = ['code' => 'PROMOTION_USAGE_LIMIT_CONFLICT', 'message' => 'Usage limits cannot be reduced below already-consumed usage.'];
+            }
 
             if ($exception instanceof PromotionNotEligibleException) {
                 $error = ['code' => $exception->reason->value, 'message' => $exception->reason->message()];

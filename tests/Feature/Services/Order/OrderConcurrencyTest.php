@@ -153,7 +153,11 @@ it('preserves inventory for cancellation overlapping another customer checkout w
     ], $product);
 
     expect($results[0]['status'])->toBe(200);
-    expect($results[1]['status'])->toBeIn([201, 409]);
+    if ($startingStock - $orderedQuantity >= $purchaseQuantity) {
+        expect($results[1]['status'])->toBe(201);
+    } else {
+        expect($results[1]['status'])->toBeIn([201, 409]);
+    }
     $purchased = $results[1]['status'] === 201;
     if (! $purchased) {
         expect($results[1]['body']['error']['code'])->toBe('INSUFFICIENT_STOCK');

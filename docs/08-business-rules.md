@@ -12,7 +12,7 @@
 
 Milestone 2 confirms BR-P01..P03. Availability means **active and positive stock**; active zero-stock products remain visible by default, `available=false` selects only active zero-stock products, and inactive products never appear publicly, regardless of inventory. Inactive details return 404. Catalogue reads never reserve or deduct stock and require no transaction.
 
-- BR-P08: Name search is a trimmed literal case-insensitive substring; empty means unfiltered. SKU/description search remains the original FR-P03 requirement outside this milestone's delivered scope.
+- BR-P08: Search is a trimmed literal case-insensitive substring of name, SKU, or description; empty means unfiltered. Milestone 7 completes recorded FR-P03; the search group remains subject to active visibility and all other filters.
 - BR-P09: Price bounds are inclusive integer minor units matching `price.amount_minor`; negatives, decimals, overflow, and reversed ranges return 422.
 - BR-P10: Public sorting permits only name, price, and creation date in ascending/descending order; ID breaks ties in the same direction. Default is newest first. Pagination defaults to 15 and rejects page sizes above 100.
 - BR-P11: Product status is the closed `ProductStatus` enum (`active`, `inactive`), mirrored by a database CHECK. Database CHECKs and NOT NULL constraints preserve price/stock/status/SKU integrity independently of Eloquent.
@@ -103,3 +103,13 @@ BR-O09: optional Idempotency-Key is scoped to the authenticated customer and per
 - BR-S13: History is owner-scoped, `created_at DESC, id DESC`, page size 15 by default / maximum 100. List omits items; details return stored purchase information.
 
 Any exception rolls back all restoration and markers; unsupported/inconsistent states and database integrity/remaining concurrency conflicts use safe 409 codes. No refund/shipping action occurs. See `12-order-management.md`.
+
+## Bonus 7A administration
+
+- BR-ADM01: Only authenticated stored administrators may access admin product/promotion operations. Registration and mass assignment never grant this privilege; customer ownership rules remain in force for all customer routes.
+- BR-ADM02: Product creation accepts initial nonnegative stock. Subsequent stock management uses a nonzero signed adjustment to the locked current quantity. Underflow/overflow aborts every field in the transaction. Cart operations reserve no stock.
+- BR-ADM03: Inactive products remain visible to admins and hidden from the public catalogue; deactivation does not rewrite historical item snapshots or prevent eligible cancellation restoration.
+- BR-ADM04: Promotion edits apply to future eligibility and discount snapshots only. Existing redemption identity, amounts, timestamps and order snapshots are preserved; cancellation still consumes usage.
+- BR-ADM05: Supplied global/customer limits must be at least consumed total/largest individual customer usage under the checkout promotion lock. Equality is allowed; null means unlimited. Below-usage edits return 409 and retain all original properties/records.
+- BR-ADM06: Deactivation is the supported retirement operation. No hard-delete endpoints, reservation, cache, queue, additional throttle or RBAC framework are introduced.
+- BR-ADM07: A local-only administrator grant operates on an existing registered customer and never creates credentials. Production provisioning requires a separately reviewed operator workflow.

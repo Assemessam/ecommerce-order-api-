@@ -64,7 +64,7 @@ Review gate: contention tests prove no oversell/overuse and failure injection pr
 
 Review gate: inventory restores exactly once.
 
-## Milestone 7 — Hardening and submission
+## Milestone 7 — Hardening and submission (completed)
 
 - Run the full PostgreSQL suite, Pint, audit, and targeted performance/query reviews.
 - Verify fresh-clone setup and migrations.
@@ -82,6 +82,11 @@ Review gate: inventory restores exactly once.
 | Host lacks PostgreSQL PDO driver | Use the checked-in app container with `pdo_pgsql` |
 | Client retries duplicate checkout | Decide idempotency-key behavior before checkout implementation |
 
-## Next recommended milestone
+## Bonus Milestone 7A — Admin product and promotion management (implemented)
 
-Milestone 6 is implemented and stops here. The recommended next milestone is **Milestone 7: Hardening and submission**: fresh-clone setup, production configuration and query/retention review, and final submission preparation. No bonus features or additional milestone code is included. See `12-order-management.md` for order/cancellation evidence.
+- Minimal guarded is_admin flag, Sanctum and class-level policies, local-only existing-account provisioning.
+- Thin admin controllers, specific Form Requests, existing resources/enums/repositories, dedicated administration services.
+- Atomic Product row-locked signed adjustments and Promotion row-locked edits/consumed-limit checks.
+- Historical snapshot/ledger preservation, actual PostgreSQL contention, regression and security verification, documentation and separate Admin Postman examples.
+
+Bonus 7A stops after verification. The next **separately authorized** milestone may implement Redis public-catalogue caching. Required invalidation points are documented in [14-admin-management.md](14-admin-management.md); no caching, order queues or additional rate limiting is started here. The other optional bonus milestones need their own scope/approval.

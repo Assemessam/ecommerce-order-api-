@@ -7,12 +7,13 @@ use App\DTOs\Product\ProductQuery;
 use App\Enums\ProductStatus;
 use App\Models\Product;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use InvalidArgumentException;
 
 class EloquentProductRepository implements ProductRepositoryInterface
 {
-    public function paginate(ProductQuery $query, ProductStatus $status): LengthAwarePaginator
+    public function paginate(ProductQuery $query, ?ProductStatus $status): LengthAwarePaginator
     {
         $sortColumn = match ($query->sort) {
             'name' => 'name',
@@ -25,11 +26,19 @@ class EloquentProductRepository implements ProductRepositoryInterface
             throw new InvalidArgumentException('Unsupported product sort direction.');
         }
 
-        $products = Product::query()->where('status', $status);
+        $products = Product::query();
+
+        if ($status !== null) {
+            $products->where('status', $status);
+        }
 
         if ($query->search !== null && $query->search !== '') {
             $search = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $query->search);
-            $products->whereLike('name', '%'.$search.'%');
+            $products->where(function (Builder $products) use ($search): void {
+                $products->whereLike('name', '%'.$search.'%')
+                    ->orWhereLike('sku', '%'.$search.'%')
+                    ->orWhereLike('description', '%'.$search.'%');
+            });
         }
 
         if ($query->minPrice !== null) {
@@ -52,6 +61,18 @@ class EloquentProductRepository implements ProductRepositoryInterface
     public function findById(int $id): ?Product
     {
         return Product::query()->find($id);
+    }
+
+    public function create(array $attributes): Product
+    {
+        return Product::query()->create($attributes)->refresh();
+    }
+
+    public function update(Product $product, array $attributes): Product
+    {
+        $product->update($attributes);
+
+        return $product->refresh();
     }
 
     public function findByIdForUpdate(int $id): ?Product

@@ -21,4 +21,10 @@ class EloquentUserRepository implements UserRepositoryInterface
     {
         $user->update(['password' => $passwordHash]);
     }
+
+    public function grantAdministrator(User $user): void
+    {
+        $user->is_admin = true;
+        $user->save();
+    }
 }

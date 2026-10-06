@@ -11,7 +11,13 @@ use Illuminate\Database\Eloquent\Collection;
 interface ProductRepositoryInterface
 {
     /** @return LengthAwarePaginator<int, Product> */
-    public function paginate(ProductQuery $query, ProductStatus $status): LengthAwarePaginator;
+    public function paginate(ProductQuery $query, ?ProductStatus $status): LengthAwarePaginator;
+
+    /** @param array{name: string, sku: string, price_minor: int, description?: ?string, stock_quantity?: int, status?: string} $attributes */
+    public function create(array $attributes): Product;
+
+    /** @param array{name?: string, sku?: string, price_minor?: int, description?: ?string, stock_quantity?: int, status?: string} $attributes */
+    public function update(Product $product, array $attributes): Product;
 
     public function findById(int $id): ?Product;
 

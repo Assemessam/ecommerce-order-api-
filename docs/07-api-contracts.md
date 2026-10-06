@@ -88,7 +88,7 @@ Authentication uses bearer tokens only, without web session fallback. Tokens ret
 
 | Parameter | Validation and behavior |
 |---|---|
-| `search` | Optional nullable string, trimmed, maximum 100 characters; empty/whitespace means no search; embedded null bytes rejected. Literal case-insensitive substring of **name only**; `%`, `_`, and backslash are escaped, values bound via `whereLike`/PostgreSQL `ILIKE`. |
+| `search` | Optional nullable string, trimmed, maximum 100 characters; empty/whitespace means no search; embedded null bytes rejected. Literal case-insensitive substring of **name, SKU, or description**; the OR predicates are grouped with visibility and other filters. `%`, `_`, and backslash are escaped, values bound via `whereLike`/PostgreSQL `ILIKE`. |
 | `min_price`, `max_price` | Optional inclusive signed-bigint-compatible integer minor units, 0..9223372036854775807. No decimals, exponent notation, arrays, negatives, or overflow. When both supplied, `min_price <= max_price`; comparison uses integers. |
 | `available` | Optional `1`, `0`, `true`, `false` query strings. True means `stock_quantity > 0`; false means `stock_quantity = 0`; omitted includes both. |
 | `sort` | `name`, `price`, `created_at`; default `created_at`. `price` maps to the fixed `price_minor` database column. |
@@ -130,7 +130,7 @@ Invalid queries return 422 `VALIDATION_FAILED`, e.g. reversed ranges:
 
 404 uses `RESOURCE_NOT_FOUND` and `The requested resource was not found.` All responses retain Milestone 1 request IDs, no-store headers, and safe JSON errors.
 
-Scope discrepancy: original FR-P03 includes SKU/description search; the explicit Milestone 2 request implements name search only and preserves that broader requirement for later review. The approved `price_minor` schema is retained instead of adding a literal `price` database column.
+Milestone 7 closes the recorded FR-P03 search gap: name, SKU, and description are searchable. The approved `price_minor` schema is retained instead of adding a literal `price` database column.
 
 ### Cart (implemented in Milestone 3)
 
@@ -369,4 +369,53 @@ GET, item POST/PATCH, and promotion POST share this contract. Prices, quantities
 {"error":{"code":"PROMOTION_EXPIRED","message":"The promotion has expired.","request_id":"<generated-uuid>"}}
 ```
 
-All totals are estimates; future checkout must revalidate under locks and record successful redemption atomically. No checkout/order/redemption endpoint is registered.
+This was the Milestone 4 delivery state: totals were estimates and checkout was deferred. The completed checkout/order contracts above supersede that state; checkout now revalidates under locks and records redemption atomically.
+
+## Bonus 7A — Administrator product and promotion management
+
+All routes below require a Sanctum bearer token belonging to a user whose stored `is_admin` is true. Missing/invalid/revoked tokens receive 401; ordinary customers receive 403 before validation or resource lookup. There are no public admin-registration or DELETE endpoints. Names are `admin.products.{index,show,store,update}` and `admin.promotions.{index,show,store,update}`.
+
+| Method | Path | Success |
+|---|---|---|
+| GET | `/api/admin/products` | 200 paginated ProductResource collection, including inactive |
+| GET | `/api/admin/products/{id}` | 200 ProductResource, including inactive |
+| POST | `/api/admin/products` | 201 ProductResource |
+| PATCH | `/api/admin/products/{id}` | 200 ProductResource |
+| GET | `/api/admin/promotions` | 200 paginated AdminPromotionResource collection |
+| GET | `/api/admin/promotions/{id}` | 200 AdminPromotionResource |
+| POST | `/api/admin/promotions` | 201 AdminPromotionResource |
+| PATCH | `/api/admin/promotions/{id}` | 200 AdminPromotionResource |
+
+Product lists reuse public search/price/availability/sort/pagination semantics and add optional `status=active|inactive`; absent status includes both. Promotion lists use newest-created/ID order, optional `is_active=true|false`, default page size 15 and maximum 100. Filters are query-only, allow-listed and carried into links. Admin-only aggregate `redemptions_count` reveals no customer identities. Missing/zero/out-of-range identifiers return 404; empty PATCH is a permitted no-op.
+
+Product POST requires `name`, `sku`, `price_minor`; optional description, stock_quantity and status default to null, 0 and active. Names and SKUs are trimmed, max 255; description is nullable and bounded to 10,000 characters. SKU normalizes to uppercase; the existing normalized unique index is authoritative, including legacy lowercase imports. Price/stock are actual JSON integers in 0..PHP_INT_MAX. PATCH accepts the same properties except stock_quantity, plus a nonzero signed `stock_adjustment` in −PHP_INT_MAX..PHP_INT_MAX. Supplying stock_quantity on PATCH or stock_adjustment on POST returns 422, even if null.
+
+```json
+{"name":"Desk Lamp","sku":"lamp-01","price_minor":1899,"stock_quantity":10,"status":"active"}
+```
+
+```json
+{"name":"Updated Lamp","price_minor":2099,"description":null,"stock_adjustment":-2,"status":"inactive"}
+```
+
+Promotion POST requires `code`, `type`, `value`; PATCH makes these optional. Code is canonical ASCII `[A-Z0-9][A-Z0-9_-]{0,63}` after trimming/uppercasing. Types are `percentage` (value 1..10000 basis points) and `fixed` (value 1..PHP_INT_MAX minor units). Optional minimum_cart_amount_minor defaults to 0 and must be a nonnegative integer; maximum_discount_minor is null or a positive integer. Validity fields are null or explicit-offset ISO timestamps, using whole seconds or exactly six fractional digits; `Z` is accepted and responses are UTC. If both boundaries exist, starts_at must precede expires_at. Usage limits are null or positive integers; is_active is an actual JSON boolean, default true. Explicit null clears caps/dates/limits. Omitted PATCH fields retain existing values; combined type/value and date rules are checked against the locked row.
+
+```json
+{"code":"save20","type":"percentage","value":2000,"minimum_cart_amount_minor":10000,"maximum_discount_minor":2500,"global_usage_limit":100,"per_customer_usage_limit":2,"is_active":true}
+```
+
+```json
+{"type":"fixed","value":500,"maximum_discount_minor":null,"expires_at":"2026-12-31T23:59:59Z","is_active":false}
+```
+
+The admin promotion resource uses explicit editable field names (including raw value/minor-unit inputs), UTC dates, redemptions_count, and created_at/updated_at. Customer cart promotion resources retain their existing money/basis-point schema. Updates affect future eligibility and pricing; existing orders and ledger records remain unchanged. Codes already selected in carts continue to reference the same promotion ID. Cancellation keeps usage consumed.
+
+| Condition | Status / code |
+|---|---|
+| Invalid fields, duplicate normalized SKU/code, invalid combined promotion state | 422 / VALIDATION_FAILED, `details.fields` |
+| Stock delta would produce negative stock or bigint overflow | 409 / INVENTORY_ADJUSTMENT_CONFLICT |
+| Supplied limit below total or largest individual consumed usage | 409 / PROMOTION_USAGE_LIMIT_CONFLICT |
+| Exhausted recognized database contention/integrity conflict | 409 / ADMINISTRATION_CONFLICT |
+| Unexpected failure | 500 / INTERNAL_ERROR; no SQL/details exposed |
+
+A limit equal to usage is permitted and blocks further redemption; reducing below usage is rejected atomically, including any other fields in that PATCH. Stock adjustments are additive and **not idempotent across separate requests**; don't blindly retry after an uncertain response. Transaction retries roll back earlier attempts before reapplying a delta. For provisioning and curl examples see [14-admin-management.md](14-admin-management.md); the separate Admin Postman folder uses its own token variables.

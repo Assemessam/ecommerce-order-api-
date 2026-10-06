@@ -10,7 +10,7 @@
 - FR-P04: Filter by minimum/maximum price and availability.
 - FR-P05: Sort only by an allow-list of fields and directions.
 
-Milestone 2 implements FR-P01, FR-P02, FR-P04, and FR-P05. The explicit milestone request limits FR-P03 delivery to case-insensitive product **name** search. The original broader name/SKU/description requirement above remains unchanged for traceability; SKU/description search is deferred. Storage uses the approved `price_minor` column, while the public resource calls its money object `price`.
+Milestone 2 implemented FR-P01, FR-P02, FR-P04, and FR-P05 and limited FR-P03 to name search. Milestone 7 closes the recorded FR-P03 gap with case-insensitive literal name/SKU/description search, grouped with visibility and other filters. Storage uses the approved `price_minor` column, while the public resource calls its money object `price`. The separate employer brief is unavailable; these recorded requirements are the audit baseline.
 
 Implemented catalogue contract: active-only visibility; zero-stock active products visible by default; `available=true` means positive stock, `available=false` means zero stock; inclusive integer minor-unit prices; sorts `name`, `price`, `created_at` with `asc`/`desc` and an ID tie-breaker; default page size 15, maximum 100. Invalid query inputs return 422 in the Milestone 1 envelope. See `07-api-contracts.md` for exact limits and response examples.
 
@@ -84,4 +84,8 @@ Milestone 3 implements FR-C01..C06. All cart endpoints require Sanctum and use o
 
 Implementation milestones and tests should cite requirement IDs in pull-request descriptions or test names where practical. Requirements whose behavior remains proposed must be confirmed before their implementation milestone.
 
-Milestone 4 implements FR-R01 and preliminary FR-R02 against committed ledger records for cart estimates. Eligibility is recomputed after prices, quantities, status, validity, or recorded usage change; invalid selections remain visible with zero discount. Milestone 5 implements FR-R03, FR-R04, FR-O01..O04, FR-O06, and the checkout concurrency acceptance criteria; see `11-checkout.md`. FR-O05, FR-O07, and FR-O08 remain future work. Application/removal never creates ledger entries or changes inventory.
+Milestone 4 implements FR-R01 and preliminary FR-R02 against committed ledger records for cart estimates. Eligibility is recomputed after prices, quantities, status, validity, or recorded usage change; invalid selections remain visible with zero discount. Milestone 5 implements FR-R03, FR-R04, FR-O01..O04, FR-O06, and the checkout concurrency acceptance criteria; see `11-checkout.md`. Milestone 6 implements FR-O05 and FR-O07..O09; see `12-order-management.md`. Application/removal never creates ledger entries or changes inventory. Milestone 7 independently reviews these claims and supplies the complete traceability matrix and current verification evidence in `13-final-audit.md`.
+
+## Optional Bonus 7A — Admin product and promotion management
+
+The separately authorized bonus adds Sanctum/policy-protected product and promotion list/detail/create/PATCH endpoints. Default/registered users remain unprivileged, local-only provisioning acts on an existing account, product stock uses locked signed adjustments, and promotion edits share checkout's ledger lock. Historical snapshots and redemptions are retained. Reducing a limit below consumed usage is rejected, equality exhausts eligibility, and safe deactivation replaces deletion. Mandatory behaviors above remain regression requirements; Redis, queues and extra throttling are explicitly deferred. See [14-admin-management.md](14-admin-management.md) for the implemented contract and executed results.

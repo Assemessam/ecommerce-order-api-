@@ -26,7 +26,7 @@ The API provides a reliable backend for customers to discover products, maintain
 ## Confirmed constraints
 
 - Backend REST API only; no frontend.
-- Laravel 13, PHP 8.3+, PostgreSQL, Eloquent, Sanctum, Pest, Composer, and Git.
+- Laravel 13, PHP 8.4.1+ for the committed dependency lock (Docker uses PHP 8.5), PostgreSQL, Eloquent, Sanctum, Pest, Composer, and Git.
 - Controllers delegate validation to Form Requests and business rules to services.
 - Major domains follow Controller → Service → Repository interface → Eloquent repository → PostgreSQL.
 - `CheckoutService` owns checkout transactions; `OrderService` owns cancellation transactions.
