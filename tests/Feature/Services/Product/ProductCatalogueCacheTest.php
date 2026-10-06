@@ -476,6 +476,7 @@ it('serves representative cached pages without product queries and reports local
         'filtered' => '/api/products?search=Lamp&min_price=50&max_price=500&available=true&sort=price&direction=asc',
         'paginated' => '/api/products?per_page=20&page=4&sort=name&direction=asc',
     ] as $name => $url) {
+        $this->advanceRateLimitWindows();
         config(['catalogue.cache.enabled' => false]);
         $uncached = [];
         for ($sample = 0; $sample < 25; $sample++) {

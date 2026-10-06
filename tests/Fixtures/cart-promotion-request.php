@@ -15,7 +15,10 @@ if (! $app->environment('testing')
     || config('database.connections.pgsql.host') !== 'postgres'
     || (string) config('database.connections.pgsql.port') !== '5432'
     || config('database.connections.pgsql.database') !== 'ecommerce_order_api_test'
-    || filled(config('database.connections.pgsql.url'))) {
+    || filled(config('database.connections.pgsql.url'))
+    || (string) config('database.redis.rate-limits.database') !== '7'
+    || filled(config('database.redis.rate-limits.url'))
+    || ! str_starts_with(config('database.redis.rate-limits.prefix'), 'ecommerce:rate-limits:testing:')) {
     throw new RuntimeException('Cart concurrency workers require the isolated Compose PostgreSQL test database.');
 }
 

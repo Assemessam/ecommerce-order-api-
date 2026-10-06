@@ -343,39 +343,36 @@ describe('protected endpoints', function () {
 });
 
 describe('throttling', function () {
-    it('returns 429 after five registration attempts and resets after a minute', function () {
-        $this->freezeTime();
+    it('returns 429 after five registration attempts and resets after an hour', function () {
         for ($attempt = 0; $attempt < 5; $attempt++) {
             $this->postJson('/api/auth/register', [])->assertUnprocessable();
         }
 
         $this->postJson('/api/auth/register', [])->assertTooManyRequests()
-            ->assertHeader('Retry-After', '60')->assertJsonPath('error.code', 'TOO_MANY_REQUESTS');
-        $this->travel(61)->seconds();
+            ->assertHeader('Retry-After')->assertJsonPath('error.code', 'TOO_MANY_REQUESTS');
+        $this->advanceRateLimitWindows();
         $this->postJson('/api/auth/register', [])->assertUnprocessable();
         $this->assertDatabaseCount('users', 0);
     });
 
     it('returns 429 after five login attempts using the normalized email and IP', function () {
-        $this->freezeTime();
         for ($attempt = 0; $attempt < 5; $attempt++) {
             $this->postJson('/api/auth/login', ['email' => 'customer@example.com', 'password' => 'wrong'])
                 ->assertUnauthorized();
         }
 
         $this->postJson('/api/auth/login', ['email' => ' CUSTOMER@EXAMPLE.COM ', 'password' => 'wrong'])
-            ->assertTooManyRequests()->assertHeader('Retry-After', '60')
+            ->assertTooManyRequests()->assertHeader('Retry-After')
             ->assertJsonPath('error.code', 'TOO_MANY_REQUESTS');
         $this->postJson('/api/auth/login', ['email' => 'other@example.com', 'password' => 'wrong'])
             ->assertUnauthorized();
-        $this->travel(61)->seconds();
+        $this->advanceRateLimitWindows();
         $this->postJson('/api/auth/login', ['email' => 'customer@example.com', 'password' => 'wrong'])
             ->assertUnauthorized();
         $this->assertDatabaseCount('personal_access_tokens', 0);
     });
 
     it('returns 429 when email rotation exceeds the per-IP login limit', function () {
-        $this->freezeTime();
         for ($attempt = 0; $attempt < 30; $attempt++) {
             $this->postJson('/api/auth/login', ['email' => 'customer'.$attempt.'@example.com', 'password' => 'wrong'])
                 ->assertUnauthorized();

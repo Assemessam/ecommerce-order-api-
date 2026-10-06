@@ -110,4 +110,16 @@ Evidence and known limits are in [15-redis-caching.md](15-redis-caching.md). The
 - Opt-in Compose worker/scheduler, PostgreSQL constraints and real Redis/independent-process tests.
 - Original checkout/cancellation inventory, promotion, status and replay behavior preserved.
 
-The implementation and verification are documented in [16-order-events-queues.md](16-order-events-queues.md). 7C remains uncommitted for review on its feature branch. Stop after verification: no merge, push or deployment. Recommended next separately authorized milestone: Bonus 7D API rate limiting, with endpoint-specific behavior and regression coverage.
+The implementation and verification are documented in [16-order-events-queues.md](16-order-events-queues.md). 7C was reviewed and committed on `feature/order-events-queues-7c` as `49732ad851d8163e47b91be2979a0ffda8cc974d`. Bonus 7D starts directly from that commit on its own branch.
+
+
+## Bonus Milestone 7D — API rate limiting (implemented)
+
+- Configurable Laravel named policies for registration/login, public reads, customer reads/mutations, checkout/cancellation, admin reads/mutations and account access.
+- Dedicated Redis DB/prefix, native atomic Lua admission, private infrastructure and explicit trusted-proxy configuration.
+- Existing JSON 429/request ID and correct native rate-limit/retry headers; sanitized fail-closed 503 during limiter outages.
+- Account-targeted login protection, authenticated customer/admin isolation and unchanged business authorization.
+- Purchase replay remains throttled; rejected checkout/cancellation has no database/outbox effects. Queue/recovery operations are independent.
+- Real Redis HTTP/security/checkout and forced independent-process concurrency tests, complete PostgreSQL regression and existing contention/cache/queue/outbox verification.
+
+See [17-api-rate-limiting.md](17-api-rate-limiting.md) for current results and file inventory. 7D is intentionally uncommitted on `feature/api-rate-limiting-7d`. Stop after verification: no merge, push, deployment, final submission or unrelated feature work.

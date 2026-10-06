@@ -46,6 +46,9 @@
         <env name="ORDER_EVENTS_REDIS_URL" value="" force="true"/>
         <env name="ORDER_EVENTS_QUEUE" value="order-events-testing" force="true"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="RATE_LIMIT_REDIS_DB" value="7" force="true"/>
+        <env name="RATE_LIMIT_REDIS_URL" value="" force="true"/>
+        <env name="RATE_LIMIT_REDIS_PREFIX" value="ecommerce:rate-limits:testing:" force="true"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>

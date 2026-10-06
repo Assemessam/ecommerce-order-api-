@@ -145,6 +145,19 @@ return [
 
     'redis' => [
 
+        'rate-limits' => [
+            'url' => env('RATE_LIMIT_REDIS_URL'),
+            'host' => env('REDIS_HOST', 'redis'),
+            'username' => env('REDIS_USERNAME'),
+            'password' => env('REDIS_PASSWORD'),
+            'port' => env('REDIS_PORT', '6379'),
+            'database' => env('RATE_LIMIT_REDIS_DB', '6'),
+            'prefix' => env('RATE_LIMIT_REDIS_PREFIX', 'ecommerce:rate-limits:'.env('APP_ENV', 'production').':v1:'),
+            'timeout' => 0.2,
+            'read_timeout' => 0.2,
+            'max_retries' => 0,
+        ],
+
         'order-events' => [
             'url' => env('ORDER_EVENTS_REDIS_URL'),
             'host' => env('REDIS_HOST', 'redis'),

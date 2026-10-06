@@ -113,3 +113,12 @@ Any exception rolls back all restoration and markers; unsupported/inconsistent s
 - BR-ADM05: Supplied global/customer limits must be at least consumed total/largest individual customer usage under the checkout promotion lock. Equality is allowed; null means unlimited. Below-usage edits return 409 and retain all original properties/records.
 - BR-ADM06: Deactivation is the supported retirement operation. No hard-delete endpoints, reservation, cache, queue, additional throttle or RBAC framework are introduced.
 - BR-ADM07: A local-only administrator grant operates on an existing registered customer and never creates credentials. Production provisioning requires a separately reviewed operator workflow.
+
+
+## Bonus 7D HTTP infrastructure and security
+
+- BR-RL01: Each defined API endpoint uses one named policy; related routes share a budget, and sensitive writes have separate budgets from reads. Authentication uses complementary IP, account/IP and account limits.
+- BR-RL02: Limits never derive identity or privilege from submitted `user_id`, role or administrator flags. Public client IPs honor only explicitly trusted proxies; canonical hashed IP/account identities avoid raw account data in Redis.
+- BR-RL03: Throttled requests return the existing generic 429 envelope and native retry headers before business operations. Invalid input and purchase replays consume allowance. Missing authentication returns 401 before consuming a user quota; repeated authenticated forbidden attempts may be throttled before authorization.
+- BR-RL04: Checkout idempotency, inventory, promotion ledgers and outbox persistence stay PostgreSQL responsibilities. A throttle creates no business effect. Queue workers, scheduled relay/recovery and internal services have no HTTP throttle.
+- BR-RL05: Limiter connection failures return sanitized 503 without starting business operations. Development Redis eviction/restarts may reset budgets; this does not weaken database purchase guarantees. See [17-api-rate-limiting.md](17-api-rate-limiting.md).

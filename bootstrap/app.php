@@ -17,6 +17,7 @@ use App\Exceptions\Domain\OrderCancellationConflictException;
 use App\Exceptions\Domain\PromotionNotEligibleException;
 use App\Exceptions\Domain\PromotionUsageLimitConflictException;
 use App\Http\Middleware\ApiRequestContext;
+use App\Http\Middleware\ThrottleApiRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -33,6 +34,10 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(ApiRequestContext::class);
+        $middleware->throttleWithRedis();
+        $middleware->alias(['throttle' => ThrottleApiRequests::class]);
+        $middleware->trustProxies(headers: Request::HEADER_X_FORWARDED_FOR);
+
         $middleware->redirectGuestsTo(fn (Request $request): ?string => $request->is('api', 'api/*') ? null : route('login'));
     })
     ->withExceptions(function (Exceptions $exceptions): void {

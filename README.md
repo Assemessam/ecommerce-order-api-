@@ -2,7 +2,7 @@
 
 Laravel REST API for a Senior Laravel Developer assessment: product discovery, customer authentication, carts, promotions, atomic checkout, historical orders, and cancellation. The implementation prioritizes exact money calculations, customer isolation, and PostgreSQL concurrency correctness. Submission deadline: October 13, 2026.
 
-The mandatory-scope audit is in [docs/13-final-audit.md](docs/13-final-audit.md). Secure product/promotion administration is in [docs/14-admin-management.md](docs/14-admin-management.md); Redis catalogue caching verification is in [docs/15-redis-caching.md](docs/15-redis-caching.md); durable order events/queues are in [docs/16-order-events-queues.md](docs/16-order-events-queues.md). The separate employer brief is not present in this repository; the audit uses [the recorded requirements](docs/02-requirements.md) and the Milestone 7 checklist.
+The mandatory-scope audit is in [docs/13-final-audit.md](docs/13-final-audit.md). Secure product/promotion administration is in [docs/14-admin-management.md](docs/14-admin-management.md); Redis catalogue caching verification is in [docs/15-redis-caching.md](docs/15-redis-caching.md); durable order events/queues are in [docs/16-order-events-queues.md](docs/16-order-events-queues.md); API rate limiting and current verification are in [docs/17-api-rate-limiting.md](docs/17-api-rate-limiting.md). The separate employer brief is not present in this repository; the audit uses [the recorded requirements](docs/02-requirements.md) and the Milestone 7 checklist.
 
 ## Stack and prerequisites
 
@@ -55,6 +55,9 @@ On Linux the bind-mounted files must be writable by the container user (default 
 | `CATALOGUE_REDIS_TIMEOUT` | 0.2-second connection/read timeouts; no catalogue client retries |
 | `ORDER_EVENTS_QUEUE_CONNECTION`, `ORDER_EVENTS_QUEUE` | Dedicated `order-redis` queue connection and `order-events-local` queue in Compose |
 | `ORDER_EVENTS_REDIS_DB`, `ORDER_EVENTS_REDIS_URL` | Separate queue DB 4 (test DB 5); optional private queue Redis URL |
+| `RATE_LIMIT_REDIS_DB`, `RATE_LIMIT_REDIS_URL`, `RATE_LIMIT_REDIS_PREFIX` | Dedicated limiter Redis DB 6 (test DB 7), optional private URL and per-environment/deployment namespace |
+| `RATE_LIMIT_*_PER_MINUTE`, `RATE_LIMIT_REGISTER_PER_HOUR` | Endpoint budgets in `.env.example` / `config/rate-limits.php`; minimum 1, no disable switch |
+| `TRUSTED_PROXIES` | Empty by default; explicit comma-separated reverse-proxy IPs/CIDRs, with X-Forwarded-For trusted only from those peers |
 | `ORDER_EVENTS_LEASE_SECONDS`, `ORDER_EVENTS_DISPATCH_RETRY_SECONDS`, `ORDER_EVENTS_BATCH_SIZE` | Recoverable 300-second claims, 15-second broker retries and bounded 100-event relay batches |
 
 Compose environment settings override `.env` database values. Native execution requires a reachable PostgreSQL host and your own database credentials. The supplied tests intentionally require the isolated Compose host and dedicated test database; native test execution without an equivalent setup is unsupported.
@@ -99,12 +102,25 @@ docker compose --profile orders stop order-worker order-scheduler
 
 Redis outages preserve committed orders. Expiring PostgreSQL leases recover lost jobs/crashed workers; three normal attempts with 5/30-second backoff precede failure. Manual outbox retry refreshes ownership; native `queue:retry` alone cannot reset a failed event. Delivery is at least once with effectively-once internal effects. Events may process out of order. The local Redis instance remains disposable and shares eviction/memory across catalogue and queue DBs; a separate durable queue Redis is recommended for production. Worker startup, direct one-pass commands, diagnosis, recovery and exact verification evidence are in [docs/16-order-events-queues.md](docs/16-order-events-queues.md).
 
+## API rate limiting (Bonus 7D)
+
+Named Laravel limiters protect every defined `/api` endpoint before business operations. Registration permits 5/hour/IP. Login retains 30/minute/IP and 5/minute/account+IP, plus 20/minute/account across IPs. Catalogue, cart/order/profile reads, health and admin reads allow 120/minute in separate categories; cart writes 60; promotion/admin/logout writes 30; checkout/cancellation 20. Public identities use validated canonical IPs; authenticated identities use the stored user ID and administrator flag. Budgets are shared across tokens and across routes within each category. No global API limiter is nested around these policies.
+
+HTTP 429 uses the existing `TOO_MANY_REQUESTS` JSON envelope and request ID, with native `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining` and rejection reset headers. Replays and invalid requests consume allowance. A throttled checkout has no purchase effects; retrying its idempotency key after the window expires preserves the original checkout contract. Missing authentication returns 401 before throttling; authenticated authorization failures normally return 403, and repeated attempts can return 429 before authorization.
+
+A dedicated Redis connection uses DB 6 / its own key prefix, 0.2-second connect/read timeouts and no reconnect retries. The small native middleware adapter honors Laravel's atomic Lua acquisition result to prevent the installed framework's check-then-hit race. Limiter connection failures return generic 503 before services run. The development Redis eviction policy can reset allowances; use a private non-evicting limiter Redis for strict production enforcement. Queue workers and the outbox relay have no HTTP limiter. Default proxy trust is empty; only configure actual controlled reverse-proxy addresses. Keep `/up` for internal unthrottled liveness checks. See [the report](docs/17-api-rate-limiting.md) for all budgets, configuration, trade-offs and actual results.
+
 ## Tests and quality checks
 
 Run database suites **sequentially**. The contention tests use committed fixtures and migration teardown, so concurrent suite invocations against the same test database are unsupported. Do not use `--parallel` with the guarded single-database configuration.
 
 ```bash
 docker compose exec -T api php artisan test --compact
+# Native HTTP limiter, login and independent-process Redis admission checks:
+docker compose exec -T api php artisan test --compact \
+  tests/Feature/Http/Middleware/ThrottleApiRequestsTest.php \
+  tests/Feature/Http/Middleware/RateLimitConcurrencyTest.php \
+  tests/Feature/Http/Controllers/Api/AuthControllerTest.php
 # PostgreSQL + real Redis functional, invalidation, rollback, race and outage tests:
 docker compose exec -T api php artisan test --compact tests/Feature/Services/Product/ProductCatalogueCacheTest.php
 # PostgreSQL outbox and real Redis jobs/workers, retries, recovery and crash checks:
@@ -130,7 +146,7 @@ git diff --check
 
 HTTP/service/repository/constraint tests use real PostgreSQL; the calculator is tested independently with exact expected integers. Fault injection covers rollback and normally unreachable corrupt/missing states. Real contention tests use separate PHP processes and PostgreSQL connections, an independent observer, and two observed lock waiters before barrier release. They exercise authenticated HTTP kernel requests; they are not a network load benchmark. Injected SQLSTATE deadlock tests establish retry behavior, not observed deadlock cycles. No static analyzer is installed; see the audit's Larastan assessment.
 
-The complete suite now requires the project Redis service. Existing tests disable catalogue caching by default; caching tests explicitly enable it with a unique namespace in Redis DB 3. Cleanup deletes only that namespace's keys and never calls FLUSHDB/FLUSHALL. The benchmark uses 25 uncached and 25 warm samples per listing variant, reports actual timings and product query counts, and removes its PostgreSQL/Redis fixtures. Local measurements are not production capacity estimates. Redis-enabled independent-process concurrency verification is described in [the bonus report](docs/15-redis-caching.md).
+The complete suite requires the project Redis service. Rate limiting stays enabled with a new UUID prefix in Redis DB 7 for each test; HTTP child processes share that prefix and cleanup deletes only its keys. Existing tests disable catalogue caching by default; caching tests explicitly enable it with a unique namespace in Redis DB 3. Cleanup deletes only that namespace's keys and never calls FLUSHDB/FLUSHALL. The benchmark uses 25 uncached and 25 warm samples per listing variant, reports actual timings and product query counts, and removes its PostgreSQL/Redis fixtures. Local measurements are not production capacity estimates. Redis-enabled independent-process concurrency verification is described in [the bonus report](docs/15-redis-caching.md).
 
 ## API documentation and Postman
 
@@ -180,7 +196,7 @@ Successes use `data`, plus `links` and `meta` for paginated collections; 204 res
 {"error":{"code":"VALIDATION_FAILED","message":"The given data was invalid.","details":{"fields":{"quantity":["The quantity field is required."]}},"request_id":"<uuid>"}}
 ```
 
-Authentication is 401, ownership/missing resources 404, validation 422, business/stock/state conflicts 409, and authentication throttling 429 with Retry-After. Unexpected failures are generic 500 without SQL or traces even in local debug mode. API responses include X-Request-ID and Cache-Control: no-store, private. Resource fields are explicitly allow-listed.
+Authentication is 401, ownership/missing resources 404, validation 422, business/stock/state conflicts 409, and API throttling 429 with Retry-After, or limiter unavailability 503 before business operations. Unexpected failures are generic 500 without SQL or traces even in local debug mode. API responses include X-Request-ID and Cache-Control: no-store, private. Resource fields are explicitly allow-listed.
 
 ## Service + Repository architecture
 
@@ -238,7 +254,7 @@ Transactions lock only the affected Product or Promotion row and keep it through
 - Per-customer usage enforcement has PostgreSQL sequential coverage and shares the tested promotion/cart locks; the harness does not isolate a concurrent per-customer-only limit scenario.
 - Snapshot immutability, redemption identity consistency, and inventory restoration semantics assume supported service writers; privileged SQL can bypass them. Legacy redemption rows may have NULL order_id. Retention/account deletion policy is undecided; purchase-history foreign keys restrict deletion.
 - The cancellation migration cannot downgrade while cancelled history exists: the earlier placed-only schema cannot represent it. Use forward fixes for retained data.
-- Authentication-only throttles and indefinite customer tokens are explicit assessment policies. Production infrastructure, TLS, managed secrets, backups, and broader abuse controls require a separate operational review.
+- Category-based throttles and indefinite customer tokens are explicit assessment policies. Limiter outages fail closed with 503; Redis eviction/restarts reset allowances and fixed windows permit boundary bursts. Production infrastructure, TLS, managed secrets, backups, and broader abuse controls require a separate operational review.
 - The default customer seeder is not repeatable; use registration and the two explicit repeatable sample seeders above.
 
 No commits, pushes, or deployments are performed by the audit. Review the final diff, reconcile the recorded requirements with the employer's original brief, and follow the submission checklist in docs/13-final-audit.md.

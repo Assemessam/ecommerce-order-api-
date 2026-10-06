@@ -39,6 +39,8 @@ function simultaneousOrderRequests(array $requests, Model $barrier): array
         'DB_DATABASE' => 'ecommerce_order_api_test', 'DB_USERNAME' => $connectionConfig['username'],
         'DB_PASSWORD' => $connectionConfig['password'], 'DB_URL' => '',
         'CACHE_STORE' => 'array', 'SESSION_DRIVER' => 'array', 'QUEUE_CONNECTION' => 'sync',
+        'RATE_LIMIT_REDIS_DB' => '7', 'RATE_LIMIT_REDIS_URL' => '',
+        'RATE_LIMIT_REDIS_PREFIX' => config('database.redis.rate-limits.prefix'),
     ];
     $run = 'order-concurrency-'.bin2hex(random_bytes(8));
     $names = [$run.'-1', $run.'-2'];
