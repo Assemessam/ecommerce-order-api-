@@ -145,6 +145,18 @@ return [
 
     'redis' => [
 
+        'catalogue' => [
+            'url' => env('CATALOGUE_REDIS_URL'),
+            'host' => env('REDIS_HOST', 'redis'),
+            'username' => env('REDIS_USERNAME'),
+            'password' => env('REDIS_PASSWORD'),
+            'port' => env('REDIS_PORT', '6379'),
+            'database' => env('CATALOGUE_REDIS_DB', '2'),
+            'timeout' => (float) env('CATALOGUE_REDIS_TIMEOUT', 0.2),
+            'read_timeout' => (float) env('CATALOGUE_REDIS_TIMEOUT', 0.2),
+            'max_retries' => 0,
+        ],
+
         'client' => env('REDIS_CLIENT', 'phpredis'),
 
         'options' => [

@@ -34,6 +34,12 @@ return [
 
     'stores' => [
 
+        'catalogue' => [
+            'driver' => 'redis',
+            'connection' => 'catalogue',
+            'prefix' => env('CATALOGUE_CACHE_PREFIX', 'ecommerce-catalogue-'),
+        ],
+
         'array' => [
             'driver' => 'array',
             'serialize' => false,

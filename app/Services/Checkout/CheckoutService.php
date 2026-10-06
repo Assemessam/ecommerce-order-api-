@@ -18,6 +18,7 @@ use App\Exceptions\Domain\PromotionNotEligibleException;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\Cart\CartPricingService;
+use App\Services\Product\ProductCatalogueCache;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -32,6 +33,7 @@ class CheckoutService
         private PromotionRepositoryInterface $promotions,
         private OrderRepositoryInterface $orders,
         private CartPricingService $pricing,
+        private ProductCatalogueCache $catalogueCache,
     ) {}
 
     public function checkout(User $user, ?string $idempotencyKey = null): CheckoutResult
@@ -108,6 +110,7 @@ class CheckoutService
                 }
 
                 $this->carts->clear($cart);
+                $this->catalogueCache->invalidateAfterCommit();
 
                 return new CheckoutResult($this->orders->loadItems($order));
             }, attempts: 3);

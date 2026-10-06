@@ -419,3 +419,9 @@ The admin promotion resource uses explicit editable field names (including raw v
 | Unexpected failure | 500 / INTERNAL_ERROR; no SQL/details exposed |
 
 A limit equal to usage is permitted and blocks further redemption; reducing below usage is rejected atomically, including any other fields in that PATCH. Stock adjustments are additive and **not idempotent across separate requests**; don't blindly retry after an uncertain response. Transaction retries roll back earlier attempts before reapplying a delta. For provisioning and curl examples see [14-admin-management.md](14-admin-management.md); the separate Admin Postman folder uses its own token variables.
+
+## Bonus 7B — Public listing freshness
+
+`GET /api/products` now uses a server-side Redis read-through cache. Its filters, validation, active visibility, ordering, JSON fields, pagination metadata/links, request-ID headers, and `Cache-Control: no-store, private` transport policy are unchanged. Normalized equivalent queries can reuse a page while each request retains its own validated pagination parameters and host/path. Invalid parameters are rejected before service/cache access. Detail and administrator reads remain uncached.
+
+Listings are short-lived estimates with a configurable 45-second default cache budget. Successful catalogue/stock mutations rotate the listing generation after database commit; rollback retains the committed cache. A request already reading before a mutation may return its earlier result. Failed invalidation/process failure can leave old entries reachable until expiry. Redis outages use PostgreSQL fallback; no cache connection details reach clients. Checkout always revalidates PostgreSQL status, stock and current prices under its original row locks, irrespective of listing data. See [15-redis-caching.md](15-redis-caching.md).

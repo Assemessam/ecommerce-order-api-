@@ -11,12 +11,12 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class ProductService
 {
-    public function __construct(private ProductRepositoryInterface $products) {}
+    public function __construct(private ProductRepositoryInterface $products, private ProductCatalogueCache $catalogueCache) {}
 
     /** @return LengthAwarePaginator<int, Product> */
     public function listProducts(ProductQuery $query): LengthAwarePaginator
     {
-        return $this->products->paginate($query, ProductStatus::Active);
+        return $this->catalogueCache->paginate($query, fn (): LengthAwarePaginator => $this->products->paginate($query, ProductStatus::Active));
     }
 
     public function getProduct(string $id): Product

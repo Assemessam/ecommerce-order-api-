@@ -4,11 +4,13 @@ namespace Database\Seeders;
 
 use App\Enums\ProductStatus;
 use App\Models\Product;
+use App\Services\Product\ProductCatalogueCache;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class ProductSeeder extends Seeder
 {
-    public function run(): void
+    public function run(ProductCatalogueCache $catalogueCache): void
     {
         $products = [
             ['sku' => 'DEMO-KEYBOARD', 'name' => 'Wireless Keyboard', 'description' => 'Compact rechargeable keyboard.', 'price_minor' => 4999, 'stock_quantity' => 25, 'status' => ProductStatus::Active],
@@ -19,8 +21,16 @@ class ProductSeeder extends Seeder
             ['sku' => 'DEMO-STAND', 'name' => 'Laptop Stand', 'description' => 'Discontinued aluminium desk stand.', 'price_minor' => 2999, 'stock_quantity' => 0, 'status' => ProductStatus::Inactive],
         ];
 
-        foreach ($products as $product) {
-            Product::query()->firstOrCreate(['sku' => $product['sku']], $product);
-        }
+        DB::transaction(function () use ($products, $catalogueCache): void {
+            $created = false;
+
+            foreach ($products as $product) {
+                $created = Product::query()->firstOrCreate(['sku' => $product['sku']], $product)->wasRecentlyCreated || $created;
+            }
+
+            if ($created) {
+                $catalogueCache->invalidateAfterCommit();
+            }
+        });
     }
 }

@@ -10,6 +10,7 @@ use App\Exceptions\Domain\InventoryRestorationOverflowException;
 use App\Exceptions\Domain\OrderCancellationConflictException;
 use App\Models\Order;
 use App\Models\User;
+use App\Services\Product\ProductCatalogueCache;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
@@ -18,7 +19,7 @@ use Illuminate\Support\Facades\Gate;
 
 class OrderService
 {
-    public function __construct(private OrderRepositoryInterface $orders, private ProductRepositoryInterface $products) {}
+    public function __construct(private OrderRepositoryInterface $orders, private ProductRepositoryInterface $products, private ProductCatalogueCache $catalogueCache) {}
 
     /** @return LengthAwarePaginator<int, Order> */
     public function listOrders(User $user, int $page = 1, int $perPage = 15): LengthAwarePaginator
@@ -84,6 +85,7 @@ class OrderService
                 }
 
                 $this->orders->markCancelled($order, now('UTC'));
+                $this->catalogueCache->invalidateAfterCommit();
 
                 return $this->orders->loadItems($order);
             }, attempts: 3);

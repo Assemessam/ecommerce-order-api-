@@ -23,7 +23,7 @@ class ProductAdministrationService
 {
     private const array EDITABLE_FIELDS = ['name', 'sku', 'description', 'price_minor', 'status'];
 
-    public function __construct(private ProductRepositoryInterface $products) {}
+    public function __construct(private ProductRepositoryInterface $products, private ProductCatalogueCache $catalogueCache) {}
 
     /** @return LengthAwarePaginator<int, Product> */
     public function listProducts(User $user, ProductQuery $query, ?ProductStatus $status = null): LengthAwarePaginator
@@ -46,7 +46,12 @@ class ProductAdministrationService
     {
         Gate::forUser($user)->authorize('create', Product::class);
 
-        return $this->mutate(fn (): Product => $this->products->create(Arr::only($data, [...self::EDITABLE_FIELDS, 'stock_quantity'])));
+        return $this->mutate(function () use ($data): Product {
+            $product = $this->products->create(Arr::only($data, [...self::EDITABLE_FIELDS, 'stock_quantity']));
+            $this->catalogueCache->invalidateAfterCommit();
+
+            return $product;
+        });
     }
 
     /** @param array{name?: string, sku?: string, price_minor?: int, description?: ?string, stock_adjustment?: int, status?: string} $data */
@@ -72,7 +77,17 @@ class ProductAdministrationService
                 $attributes['stock_quantity'] = $product->stock_quantity + $adjustment;
             }
 
-            return $this->products->update($product, $attributes);
+            if ($attributes === []) {
+                return $product;
+            }
+
+            $product = $this->products->update($product, $attributes);
+
+            if ($product->wasChanged()) {
+                $this->catalogueCache->invalidateAfterCommit();
+            }
+
+            return $product;
         });
     }
 

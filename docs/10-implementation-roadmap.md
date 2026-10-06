@@ -90,3 +90,13 @@ Review gate: inventory restores exactly once.
 - Historical snapshot/ledger preservation, actual PostgreSQL contention, regression and security verification, documentation and separate Admin Postman examples.
 
 Bonus 7A stops after verification. The next **separately authorized** milestone may implement Redis public-catalogue caching. Required invalidation points are documented in [14-admin-management.md](14-admin-management.md); no caching, order queues or additional rate limiting is started here. The other optional bonus milestones need their own scope/approval.
+
+## Bonus Milestone 7B — Redis public catalogue caching (implemented)
+
+- Dedicated private Compose Redis service and PhpRedis image support, independently configured catalogue store/namespace/TTL.
+- Focused service-layer read-through caching preserving validated queries, resource responses, pagination and PostgreSQL repository ownership.
+- Generation-based post-commit invalidation across product administration, checkout inventory deduction, cancellation restoration and new sample seeding.
+- Transactional-read bypass, rollback/race/outage tests, bounded diagnostics and committed-purchase safety; unchanged authoritative checkout/cancellation locks and idempotency.
+- Real Redis/PostgreSQL tests, complete regression, Redis-enabled independent-process contention, repeatable local benchmarks, Pint/Composer/whitespace verification.
+
+Evidence and known limits are in [15-redis-caching.md](15-redis-caching.md). Stop after verification; no queues, order events, additional API throttling, frontend or new business features are implemented. Recommended next separately scoped bonus: durable order notifications with an outbox/queue design that preserves purchase idempotency and post-commit failure safety.

@@ -2,12 +2,12 @@
 
 Laravel REST API for a Senior Laravel Developer assessment: product discovery, customer authentication, carts, promotions, atomic checkout, historical orders, and cancellation. The implementation prioritizes exact money calculations, customer isolation, and PostgreSQL concurrency correctness. Submission deadline: October 13, 2026.
 
-The mandatory-scope audit is in [docs/13-final-audit.md](docs/13-final-audit.md). Secure product/promotion administration and current Bonus 7A verification are in [docs/14-admin-management.md](docs/14-admin-management.md). The separate employer brief is not present in this repository; the audit uses [the recorded requirements](docs/02-requirements.md) and the Milestone 7 checklist.
+The mandatory-scope audit is in [docs/13-final-audit.md](docs/13-final-audit.md). Secure product/promotion administration is in [docs/14-admin-management.md](docs/14-admin-management.md); current Redis catalogue caching verification is in [docs/15-redis-caching.md](docs/15-redis-caching.md). The separate employer brief is not present in this repository; the audit uses [the recorded requirements](docs/02-requirements.md) and the Milestone 7 checklist.
 
 ## Stack and prerequisites
 
 - PHP **8.4.1+ for the committed dependency lock**; the supplied Docker image uses PHP 8.5.
-- Laravel 13.34.0, Sanctum 4.3.3, PostgreSQL 17, Pest 4.7.8, Composer 2.
+- Laravel 13.34.0, Sanctum 4.3.3, PostgreSQL 17, Redis 7.4, PhpRedis 6.3.0, Pest 4.7.8, Composer 2.
 - Docker Engine with Compose v2 and Git are the recommended local prerequisites.
 - Native execution requires 64-bit PHP, Composer, a PostgreSQL instance, and the extensions reported by `composer check-platform-reqs`, plus `pdo_pgsql` for this application and the supplied image's `intl`/`pcntl` development tooling support. PHP 8.3 cannot install the locked Symfony 8.1 dependencies even though the root Composer constraint allows it.
 - Node/npm and frontend builds are unnecessary for this JSON API.
@@ -28,7 +28,7 @@ docker compose run --rm api php artisan db:seed --class=PromotionSeeder --no-int
 docker compose up -d api
 ```
 
-Compose starts its healthy PostgreSQL dependency automatically. The API listens at **http://localhost:8091** by default:
+Compose starts its healthy PostgreSQL and dedicated Redis dependencies automatically. The API listens at **http://localhost:8091** by default:
 
 ```bash
 curl -H 'Accept: application/json' http://localhost:8091/api/health
@@ -47,10 +47,35 @@ On Linux the bind-mounted files must be writable by the container user (default 
 | `CATALOGUE_CURRENCY` | One uppercase three-letter currency label; defaults to USD; no currency conversion |
 | `DB_*` | Compose explicitly supplies pgsql / postgres:5432 / ecommerce_order_api / ecommerce / local-only password `secret` |
 | `CACHE_STORE` | Database cache, shared by authentication rate limiters |
+| `CATALOGUE_CACHE_ENABLED`, `CATALOGUE_CACHE_STORE` | Public listing cache enabled; dedicated `catalogue` Redis store |
+| `CATALOGUE_CACHE_TTL` | 45-second freshness budget; configurable, clamped to 1–300 seconds; slow-read time is deducted |
+| `CATALOGUE_CACHE_NAMESPACE`, `CATALOGUE_CACHE_PREFIX`, `REDIS_PREFIX` | Separate application/environment namespaces; configure unique values when sharing Redis |
+| `REDIS_HOST`, `REDIS_PORT`, `CATALOGUE_REDIS_DB` | Compose `redis:6379`, catalogue DB 2; tests force DB 3 |
+| `REDIS_USERNAME`, `REDIS_PASSWORD`, `CATALOGUE_REDIS_URL` | Optional private credentials/authenticated TLS URL; keep secrets outside Git |
+| `CATALOGUE_REDIS_TIMEOUT` | 0.2-second connection/read timeouts; no catalogue client retries |
 
 Compose environment settings override `.env` database values. Native execution requires a reachable PostgreSQL host and your own database credentials. The supplied tests intentionally require the isolated Compose host and dedicated test database; native test execution without an equivalent setup is unsupported.
 
 PostgreSQL has **no published host port**. Its network and `postgres_data` volume belong to this Compose project. The initialization SQL creates `ecommerce_order_api` and the separate `ecommerce_order_api_test` database on a fresh volume. Existing volumes without the test database require explicit provisioning of that test database; initialization scripts do not rerun on an existing volume. Tests refuse unexpected targets before refreshing tables.
+
+### Redis setup and degraded operation
+
+For an existing checkout, rebuild PHP and start only this project's services:
+
+```bash
+docker compose build api
+docker compose up -d --no-deps redis api
+docker compose exec -T api php --ri redis
+docker compose exec -T redis redis-cli ping
+# If configuration was previously cached:
+docker compose exec -T api php artisan config:clear --no-interaction
+```
+
+Redis uses the project's private default bridge network, exposes no host port, disables persistence, and limits memory to 128 MB with allkeys-lru eviction. There is no Redis volume or database migration. Compose overrides REDIS_HOST with `redis`; native execution needs PhpRedis and a reachable Redis host or private `CATALOGUE_REDIS_URL`. Do not stop/reconfigure other Redis or PostgreSQL projects. Production Redis access should use private networking and privately supplied authentication/TLS settings.
+
+Only `GET /api/products` (and its HEAD route) uses this cache. The service stores scalar product snapshots and totals, and the existing resource/controller builds current pagination links and JSON. Keys hash validated normalized filters, sort, page, and page size under a versioned public generation. Details and administrator listings remain live. Successful product edits/creation, stock adjustment, checkout, cancellation, and new sample seeding rotate the generation after commit; rollback and purchase/cancellation replays do not rotate it.
+
+Listings are short-lived estimates. A request already in flight may return its earlier read; failed invalidation or process failure after commit can leave earlier entries reachable until their short TTL expires. Generation changes prevent a late old reader from publishing into the current namespace. Redis outages fall back to PostgreSQL without exposing connection details or changing committed purchase results. Warnings are limited to one per namespace/minute per application filesystem; subsequent cache attempts are skipped for that request. Checkout prices, stock, locks, snapshots, promotions, and idempotency remain authoritative in PostgreSQL. Set `CATALOGUE_CACHE_ENABLED=false` and clear cached configuration to disable listing caching.
 
 Do not reset the development database or modify `postgres-local` or unrelated Docker projects. A second checkout can use a distinct Compose project name and API port for a disposable rehearsal. The optional sample seeders insert six products and seven promotions without resetting prices, stock, customers, or existing promotions. Register your own customer through the API; the default `DatabaseSeeder` creates a fixed demo customer and is deliberately not part of this setup.
 
@@ -60,12 +85,17 @@ Run database suites **sequentially**. The contention tests use committed fixture
 
 ```bash
 docker compose exec -T api php artisan test --compact
+# PostgreSQL + real Redis functional, invalidation, rollback, race and outage tests:
+docker compose exec -T api php artisan test --compact tests/Feature/Services/Product/ProductCatalogueCacheTest.php
+# Repeatable local HTTP-kernel benchmark with 200 isolated test products:
+docker compose exec -T api php artisan test --compact --group=catalogue-benchmark
 # Standalone contention and injected retry/exhaustion cases:
 docker compose exec -T api php artisan test --compact \
   tests/Feature/Services/Cart/CartConcurrencyTest.php \
   tests/Feature/Services/Cart/CartPromotionConcurrencyTest.php \
   tests/Feature/Services/Checkout/CheckoutConcurrencyTest.php \
-  tests/Feature/Services/Order/OrderConcurrencyTest.php
+  tests/Feature/Services/Order/OrderConcurrencyTest.php \
+  tests/Feature/Services/Admin/AdminConcurrencyTest.php
 docker compose exec -T api vendor/bin/pint --dirty --format agent
 docker compose exec -T api composer validate --strict
 docker compose exec -T api composer audit
@@ -73,6 +103,8 @@ git diff --check
 ```
 
 HTTP/service/repository/constraint tests use real PostgreSQL; the calculator is tested independently with exact expected integers. Fault injection covers rollback and normally unreachable corrupt/missing states. Real contention tests use separate PHP processes and PostgreSQL connections, an independent observer, and two observed lock waiters before barrier release. They exercise authenticated HTTP kernel requests; they are not a network load benchmark. Injected SQLSTATE deadlock tests establish retry behavior, not observed deadlock cycles. No static analyzer is installed; see the audit's Larastan assessment.
+
+The complete suite now requires the project Redis service. Existing tests disable catalogue caching by default; caching tests explicitly enable it with a unique namespace in Redis DB 3. Cleanup deletes only that namespace's keys and never calls FLUSHDB/FLUSHALL. The benchmark uses 25 uncached and 25 warm samples per listing variant, reports actual timings and product query counts, and removes its PostgreSQL/Redis fixtures. Local measurements are not production capacity estimates. Redis-enabled independent-process concurrency verification is described in [the bonus report](docs/15-redis-caching.md).
 
 ## API documentation and Postman
 

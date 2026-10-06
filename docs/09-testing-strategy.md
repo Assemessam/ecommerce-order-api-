@@ -384,3 +384,23 @@ OrderControllerTest covers token protection, ownership, pagination/validation, d
 OrderConcurrencyTest reuses the existing guarded Symfony PHP worker and independent PostgreSQL connections with committed fixtures. The observer requires two distinct active lock waiters before releasing an order/product barrier. Same-owner cancellation proves one status update and one stock restoration, with identical 200 responses. Cancellation/checkout overlap and reverse-insertion multiple products verify exact final inventory and ascending product locks. Two injected PostgreSQL deadlock cases exercise whole-transaction retries/exhaustion; these injections are distinct from real contention tests. Worker telemetry now includes successful order UPDATE and inventory increment counts without binding values.
 
 The downgrade guard intentionally refuses retained cancelled orders. Concurrency teardown truncates only order fixtures and their dependent test history in the guarded test database before DatabaseMigrations rollback. Run all suites sequentially, never concurrently on the shared test database. Exact final results and backend PID evidence are in `12-order-management.md`. Earlier milestone reports remain historical.
+
+## Bonus Milestone 7B — Real Redis catalogue coverage
+
+`tests/Feature/Services/Product/ProductCatalogueCacheTest.php` uses DatabaseMigrations, guarded PostgreSQL, and real project Redis. Its 50 cases cover initial product queries versus zero product queries on warm hits, every filter/page/sort key, normalized/default/boolean query reuse, validation with a warm cache, inactive isolation, pagination and host-specific links, uncached details/admin reads, and current resource currency. Scalar snapshot reconstruction is checked through identical complete JSON responses.
+
+Mutation coverage includes creation; name/SKU/description/null-description/price/status/stock edits; changed search/range/availability membership and totals; sample seeding; checkout deduction; cancellation restoration; unchanged/empty/replayed operations. Explicit outer transactions exercise nested creation/update/checkout/cancellation rollback. Transactional listing reads cannot publish uncommitted values. A deterministic old-reader interleaving reads the old PostgreSQL page, commits an admin edit, then attempts to publish the old page: the next request must read the database and then cache the new result. Marker eviction must also choose a new generation.
+
+Failure tests use an actual refused TCP connection, missing Redis connection/store configuration, failure during population, database/application exception propagation, and a callback that makes Redis unavailable after the purchase's database commit but before catalogue invalidation. They verify purchase response/state, permanent key replay and safe cancellation. Stale Redis values cannot override authoritative checkout price/stock/status. Warning assertions cover safe diagnostic context and filesystem throttling. Real Redis expiry uses a bounded 2.1-second wait because PHP fake time cannot advance Redis's clock.
+
+PHPUnit disables caching for existing tests, forces Redis catalogue DB 3 and a testing namespace; these new tests explicitly enable caching and add a unique UUID per case. Teardown enumerates/deletes only that case's keys, asserts removal, and never flushes a Redis database. A sentinel test proves invalidation does not remove unrelated keys. Committed order fixtures are truncated only in the guarded test database before the existing placed-only downgrade, matching the concurrency-suite convention. Database suites must still run sequentially.
+
+The `catalogue-benchmark` group creates 200 isolated active products and measures default, filtered and paginated HTTP-kernel requests, with one cold request and 25 disabled-cache/25 warm-cache samples each. Query assertions check two product SELECTs per cold page and none on warm pages. It reports actual elapsed milliseconds without requiring a timing threshold, then removes all fixtures. Repeat with:
+
+```bash
+docker compose exec -T api php artisan test --compact tests/Feature/Services/Product/ProductCatalogueCacheTest.php
+docker compose exec -T api php artisan test --compact --group=catalogue-benchmark
+docker compose exec -T api php artisan test --compact
+```
+
+The complete suite requires this project's Redis service and PhpRedis extension. Existing independent-process PostgreSQL contention suites are also executed with caching enabled and an isolated Redis namespace. Exact final counts, benchmark values and quality results are recorded in [15-redis-caching.md](15-redis-caching.md); earlier milestone evidence above is historical.

@@ -16,9 +16,21 @@ services:
       DB_DATABASE: ecommerce_order_api
       DB_USERNAME: ecommerce
       DB_PASSWORD: secret
+      REDIS_HOST: redis
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   postgres:
     image: postgres:17-alpine

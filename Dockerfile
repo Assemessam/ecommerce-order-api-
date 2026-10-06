@@ -12,6 +12,8 @@ RUN apt-get update \
         pcntl \
         pdo_pgsql \
         zip \
+    && pecl install redis-6.3.0 \
+    && docker-php-ext-enable redis \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
