@@ -8,13 +8,19 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['promotion_id', 'user_id', 'redemption_key', 'discount_minor', 'redeemed_at'])]
+#[Fillable(['promotion_id', 'user_id', 'order_id', 'redemption_key', 'discount_minor', 'redeemed_at'])]
 class PromotionRedemption extends Model
 {
     /** @use HasFactory<PromotionRedemptionFactory> */
     use HasFactory;
 
     protected $dateFormat = 'Y-m-d H:i:s.uP';
+
+    /** @return BelongsTo<Order, $this> */
+    public function order(): BelongsTo
+    {
+        return $this->belongsTo(Order::class);
+    }
 
     /** @return BelongsTo<Promotion, $this> */
     public function promotion(): BelongsTo

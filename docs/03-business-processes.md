@@ -34,16 +34,16 @@ Cart checks provide early feedback and never reserve/deduct stock. Separate cust
 
 Future checkout must repeat every check under locks; attachment is not a purchase guarantee.
 
-## Checkout (planned; not implemented)
+## Checkout (implemented in Milestone 5)
 
 `CheckoutService` owns one database transaction and follows this deterministic sequence:
 
-1. Lock the customer's cart row.
-2. Load cart items; reject an empty cart.
+1. Lock the customer's cart row and authorize its owner; look up a supplied customer-scoped idempotency key and return the original order on replay.
+2. Load cart items; reject an empty cart after replay lookup.
 3. Collect product IDs, sort ascending, and lock product rows in that order.
 4. Validate active products and requested quantities against locked stock.
 5. Recalculate unit prices, line totals, and subtotal using integer minor units.
-6. If a promotion is attached, lock its row, then lock/read the customer's applicable usage aggregate in a consistent order.
+6. If a promotion is attached, lock its row, then read committed global/customer ledger counts. The promotion lock serializes all redemption writers even for first-use customers; no separate customer aggregate exists.
 7. Validate dates, status, threshold, global limit, and per-customer limit.
 8. Calculate and cap the discount; derive final total.
 9. Create the order and immutable order item snapshots.
@@ -58,7 +58,7 @@ Any exception rolls back the complete workflow. External calls must not occur in
 
 `cart → products (ascending ID) → promotion → promotion/customer usage`
 
-All workflows that touch these resources must follow the same relative order. PostgreSQL deadlocks can still occur, so a small bounded retry for detected deadlocks/serialization failures is proposed after tests demonstrate the need.
+All workflows that touch these resources must follow the same relative order. Checkout uses three transaction attempts for detected deadlocks/serialization failures. PostgreSQL Read Committed is required. Injected PostgreSQL deadlock SQLSTATE tests verify complete rollback/retry and safe exhaustion. See `11-checkout.md` for replay and rollback details.
 
 ## View orders
 

@@ -35,7 +35,7 @@ Use factories and `LazilyRefreshDatabase` (or `RefreshDatabase` when needed) for
 
 ### Concurrency tests
 
-Run separate database connections/processes against PostgreSQL with barriers so requests genuinely overlap. The following checkout/cancellation cases remain planned and unverified:
+Run separate database connections/processes against PostgreSQL with barriers so requests genuinely overlap. Milestone 5 verifies checkout contention and idempotency; cancellation cases remain planned and unverified. See `11-checkout.md` for the current execution evidence:
 
 1. Stock 5; checkout quantities 4 and 3 concurrently; assert at most one incompatible allocation succeeds and final stock is never negative.
 2. Promotion global limit 1; two eligible customers check out concurrently; assert one usage/order discount succeeds.
@@ -371,3 +371,7 @@ Modified:
 ### Final Git and environment state
 
 Git remains uncommitted: 18 tracked modified files and 59 untracked files (expanded paths), including the original Milestone 3 work. No files were staged, committed, or pushed. Existing product-model/repository changes, cart migrations/factories/policy/worker, authentication code, dependencies, environment configuration, and unrelated files were preserved. Three additive development migrations were applied to `ecommerce_order_api` on the project Compose database only. No sample seeder was run against development data; the explicit optional command is in README. This milestone stops at promotions/cart integration.
+
+## Milestone 5 executed verification
+
+The checkout controller, service, order-integrity, and independent-process checkout suites cover atomic purchase creation, shared integer pricing, snapshots, promotion consumption, owner-scoped replay, PostgreSQL constraints, five rollback boundaries, ordered locks, four observed-barrier contention scenarios, and bounded retries/exhaustion after injected PostgreSQL errors. No existing tests were deleted; one legacy-ledger assertion now checks nullable real-order compatibility. Full execution results, backend PIDs/outcomes, limitations, and file inventory are in [`11-checkout.md`](11-checkout.md). Earlier milestone reports above remain historical.

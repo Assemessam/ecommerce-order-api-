@@ -17,6 +17,12 @@ class Promotion extends Model
     /** @use HasFactory<PromotionFactory> */
     use HasFactory;
 
+    /** @return HasMany<Order, $this> */
+    public function orders(): HasMany
+    {
+        return $this->hasMany(Order::class);
+    }
+
     /** Preserve offsets and microseconds when writing validity boundaries to timestamptz. */
     protected $dateFormat = 'Y-m-d H:i:s.uP';
 

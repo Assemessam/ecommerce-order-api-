@@ -43,7 +43,7 @@ Milestone 3 implements BR-C01..C05 and cart stock rule BR-P05. GET without a per
 - BR-R06: Percentage discounts use integer basis points (1..10000), round half-up to the nearest minor unit, then clamp to cap/subtotal. The round-down proposal is superseded.
 - BR-R07: Discount never exceeds subtotal; total never becomes negative.
 - BR-R08: Nullable usage limits mean unlimited; non-null limits must be positive.
-- BR-R09: Redemption is recorded only in the same successful checkout transaction as its order. Applying/removing a cart code never consumes/restores/reserves usage; this milestone adds no redemption writer.
+- BR-R09 (implemented in Milestone 5): Redemption is recorded only in the same successful checkout transaction as its real order. Applying/removing a cart code never consumes/restores/reserves usage.
 - BR-R10: Cancellation does not release promotion usage (proposed and awaiting confirmation).
 
 ## Checkout and money
@@ -60,8 +60,8 @@ Milestone 3 implements BR-C01..C05 and cart stock rule BR-P05. GET without a per
 ## Orders and cancellation
 
 - BR-S01: Customers can list/view only their own orders.
-- BR-S02: Proposed statuses are `pending`, `confirmed`, `processing`, `shipped`, `completed`, and `cancelled`.
-- BR-S03: Proposed customer-cancellable statuses are `pending` and `confirmed`.
+- BR-S02: Milestone 5 checkout status is `placed`; the original pending/confirmed lifecycle proposal is superseded. Later status transitions remain unimplemented.
+- BR-S03: Cancellation eligibility requires Milestone 6 approval for the `placed` lifecycle.
 - BR-S04: `cancelled` is terminal in the MVP.
 - BR-S05: Cancellation restores every ordered quantity exactly once.
 - BR-S06: An order's `inventory_restored_at` must be null before restoration and set in the same transaction as stock increments.
@@ -82,8 +82,12 @@ Milestone 3 implements BR-C01..C05 and cart stock rule BR-P05. GET without a per
 - Unique `carts.user_id` and `(cart_id, product_id)`.
 - Positive cart/order quantities.
 - Promotion date range and type-dependent value validity.
-- Unique `promotion_redemptions.redemption_key`; unique real `order_id` FK remains a future checkout migration.
+- Unique `promotion_redemptions.redemption_key` and unique real `order_id` FK (Milestone 5); order_id remains nullable for legacy ledger compatibility, but every checkout writer requires a real order.
 - `0 <= discount_minor <= subtotal_minor` and `total_minor = subtotal_minor - discount_minor`.
 - Once `inventory_restored_at` is set, cancellation logic must never increment stock again.
 
 Milestone 4 implements BR-R01..R08 for estimates; BR-R09 is the future redemption contract, not an implemented checkout workflow. All cart lines must be purchasable and at least one line must exist. Invalid selections remain visible with zero discount; failed replacement preserves the original. Minimum compares pre-discount subtotal. Positive caps apply to both types. Global/customer limits count historical ledger rows (no pending reservations), and NULL limits remain unlimited. No inventory mutation or stacking is permitted.
+
+Milestone 5 implements BR-O01..O08 and promotion consumption under BR-R09. The relative lock order is Cart → Products ascending ID → Promotion → ledger reads/writes, under PostgreSQL Read Committed. Initial status is placed; tax/shipping/payment are excluded and total = subtotal - discount. A selected eligible promotion creates one real order-linked redemption even when the clamped discount is zero. Without selection there is no redemption. Nullable legacy order links continue to count toward global/customer limits.
+
+BR-O09: optional Idempotency-Key is scoped to the authenticated customer and permanently identifies one successful order. Replay returns the original order before empty-cart checks, even when the customer's cart has been refilled, without touching it. Failed attempts reserve no key. No body/query purchase parameters are supported, so conflicting client fields are ignored and cannot create a different purchase under that key. See `07-api-contracts.md` and `11-checkout.md`.

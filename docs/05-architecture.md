@@ -87,7 +87,7 @@ Services use constructor injection and never resolve dependencies from the conta
 - Sort multiple product IDs ascending before locking to reduce deadlock cycles.
 - Keep transactions short; no HTTP calls, email, or expensive unrelated work inside them.
 - Enforce stock with locked validation plus a database `stock_quantity >= 0` check constraint.
-- Enforce promotion use by locking the promotion and serialized customer usage key/aggregate; a unique `(promotion_id, order_id)` usage record supports auditability.
+- Enforce promotion use by locking the promotion before reading global/customer ledger counts; unique `order_id` prevents duplicate usage per order. The promotion lock serializes first-use customers without a customer usage row.
 - Make cancellation restoration observable through `inventory_restored_at`, updated while the order is locked.
 
 ## Security model
@@ -132,11 +132,11 @@ Compose is a development/test convenience, not a production topology. Production
 The existing API proposal used DELETE logout; the explicit Milestone 1 contract supersedes it with POST. No future commerce behavior was changed. Discovery and business-rule documents still label several decisions as proposals, so they must be confirmed before the relevant domain implementation:
 
 - Integer minor units and basis-point percentages are retained. Milestone 4 supersedes the round-down proposal with deterministic half-up rounding; catalogue currency remains configured per deployment.
-- Proposed order statuses are pending, confirmed, processing, shipped, completed, and cancelled; cancellation is allowed only for pending/confirmed. The initial checkout status and transition authority are not yet specified.
+- Milestone 5 supersedes the original lifecycle proposal with initial status `placed`. Later transitions and cancellation eligibility remain unresolved for Milestone 6.
 - Cancellation retaining usage remains a proposal. Trimmed uppercase codes and database-enforced canonical uniqueness are confirmed in Milestone 4.
 - One customer-owned cart, no stock reservation, early cart stock checks, and locked checkout revalidation are consistent.
 - Checkout and cancellation services own their transactions. The documented relative resource lock order must be preserved when implemented. A missing per-customer usage row cannot itself be row-locked; the future implementation must define serialization, using the promotion lock or a concrete lockable aggregate.
-- Checkout idempotency remains optional in the proposed contract, and no persistence design exists for retry keys. Resolve the key transport, uniqueness, replay response, payload mismatch, and retention before checkout. Database inventory safety alone does not define safe replay semantics.
+- Milestone 5 implements optional `Idempotency-Key`, unique `(user_id, idempotency_key)`, 201 creation/200 replay, and permanent original-order replay even with a new cart. No body parameters are supported. See `11-checkout.md`.
 - BR-X05 previously said bearer tokens are never returned; auth necessarily returns a newly issued token once. The rule now distinguishes issuance responses from profile/error/log disclosure.
 
 The review findings above concern the Milestone 1 scope. Milestone 2 adds only the product catalogue components described below; checkout and order code remain unimplemented.
@@ -180,3 +180,13 @@ Trade-offs: a popular product's cart mutations briefly serialize across customer
 - Future checkout must add a unique order FK, persist a stable redemption key for the successful order/workflow, and reuse it on retries. Lock Cart → Products ascending → Promotion → Customer ledger; count under the promotion lock and insert redemption in the same transaction as order snapshots/inventory/cart clearing. The promotion lock serializes first use even when no customer ledger row exists. All writers must obey this protocol; uniqueness alone cannot enforce usage limits.
 
 Known limits: estimates use Read Committed and prices/status/usage can change immediately after reading. No coupon or inventory reservation occurs; multiple customers may attach the last available use. Indexed counts are proportional to ledger history; no performance benchmark or cache/counter is claimed. Selection contention is tested; checkout overuse prevention, replay handling, order linkage, and exactly-once redemption workflows remain unimplemented/unverified. Account deletion with ledger history is restricted pending retention/privacy decisions.
+
+## Milestone 5 checkout decisions
+
+CheckoutController handles Sanctum context, CheckoutRequest header validation, OrderResource, and 201/200 status. CheckoutService owns the complete transaction and coordinates Cart/Product/Promotion/Order repository interfaces. CheckoutResult carries the persisted order and replay flag. Repositories own queries, row locks, conditional stock updates, order/item insertion, cart clearing, and order-linked redemption insertion; they do not commit the workflow.
+
+Locked products replace each cart item's product relation before the shared CartPricingService calculation. Selected promotions are read under FOR UPDATE before the existing PromotionService eligibility and PromotionCalculator logic runs. The promotion lock is the serialization point for both global/customer ledger counts; no lockable customer usage aggregate is introduced. A UUID is generated once per checkout invocation and reused across transaction retries; successful replay returns the stored order without another insertion.
+
+Cart rows remain after checkout so all supported mutations/replays share the same serialization point. Customer-scoped keys have database uniqueness and permanent replay semantics; body parameters are ignored so no request fingerprint is needed. OrderResources serialize stored snapshots only, and initial responses reload persisted values to match replay timestamps. PostgreSQL Read Committed is required. The four real process/barrier tests and two injected PostgreSQL deadlock tests are documented in `11-checkout.md`.
+
+Earlier milestone sections above preserve the design state at their delivery; their references to future checkout are superseded by this section. Cancellation remains unimplemented and requires new lifecycle approval.

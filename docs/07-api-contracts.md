@@ -202,15 +202,50 @@ Other cart 409 codes are `CART_CONFLICT` for integrity/remaining lock conflicts 
 
 Adding/removing does not change inventory or reserve stock. Quantity checks concern only this customer's line; checkout must independently revalidate and allocate inventory. Cart GET is an unlocked estimate, not a guarantee or historical snapshot.
 
-### Checkout
+### Checkout (implemented in Milestone 5)
 
-| Method/path | Body | Success |
-|---|---|---|
-| `POST /api/checkout` | optional `idempotency_key` (proposal; not yet required) | `201` order |
+`POST /api/checkout` requires a Sanctum bearer token. The persisted owner cart and selected promotion are authoritative. No body/query parameters are supported; extra fields (including forged identity, prices, names, quantities, coupons, and totals) are ignored. Optional `Idempotency-Key` is the only accepted input: 1..128 case-sensitive ASCII characters, beginning with a letter/digit and continuing with letters/digits/period/underscore/colon/hyphen. Empty, whitespace, malformed, or oversized keys return 422 with `error.details.fields.idempotency_key`.
 
-The server ignores/rejects client price and total fields. A formal idempotency-key requirement remains open; database correctness protects inventory, but retry-safe order creation is materially better with an idempotency key.
+- First successful checkout returns 201 with OrderResource, snapshots, totals, and promotion inputs.
+- Reusing a successful key for the same customer returns 200 with the original persisted order, before any empty-cart/eligibility rejection. It performs no second deduction/redemption and leaves a newly filled cart untouched. A fresh purchase requires a new key.
+- Keys are scoped to customers and retained for the life of the order, without expiry. There is no payload fingerprint because the API accepts no purchase parameters; ignored fields do not alter replay semantics.
+- Different/no keys after a successful checkout return 409 CART_EMPTY until the cart is filled again. Failed attempts persist no key association and can be retried.
 
-### Orders
+Example request:
+
+```http
+POST /api/checkout
+Accept: application/json
+Authorization: Bearer <token>
+Idempotency-Key: purchase-2026-10-06-001
+```
+
+Example 201 response (200 replay returns the same resource):
+
+```json
+{
+  "data": {
+    "id": 1,
+    "user_id": 7,
+    "status": "placed",
+    "currency": "USD",
+    "items": [{"id":1,"product_id":42,"product_name":"Travel Mug","product_sku":"MUG","quantity":2,"unit_price_minor":1005,"line_subtotal_minor":2010}],
+    "subtotal": {"amount_minor":2010,"currency":"USD"},
+    "discount": {"amount_minor":201,"currency":"USD"},
+    "total": {"amount_minor":1809,"currency":"USD"},
+    "promotion": {"id":3,"code":"SAVE10","type":"percentage","value":1000,"maximum_discount":null},
+    "placed_at": "2026-10-06T12:00:00.000000Z",
+    "created_at": "2026-10-06T12:00:00.000000Z",
+    "updated_at": "2026-10-06T12:00:00.000000Z"
+  }
+}
+```
+
+Without a selected promotion, promotion is null and discount is zero. Item amounts inherit the order's currency. Idempotency keys and live catalogue/promotion relations are not exposed. The first response reloads the persisted order so timestamp precision matches later replays.
+
+Errors preserve the existing request ID/no-store JSON envelope: 401 UNAUTHENTICATED; 409 CART_EMPTY, PRODUCT_INACTIVE, INSUFFICIENT_STOCK, CART_TOTAL_TOO_LARGE, CHECKOUT_CONFLICT, or exhausted usage codes; 422 inactive/future/expired/minimum coupon codes; 404 missing product/unknown promotion; safe 500 INTERNAL_ERROR for unexpected failures. Any failed transaction preserves items, quantities, selected promotion, and stock and creates no partial order or consumed usage. See `11-checkout.md` for transaction/locking details.
+
+### Orders (planned; not implemented)
 
 | Method/path | Query/body | Success |
 |---|---|---|
@@ -228,12 +263,14 @@ The server ignores/rejects client price and total fields. A formal idempotency-k
 | `405` | `METHOD_NOT_ALLOWED` | Method is unsupported |
 | `409` | `CONFLICT` | Generic HTTP conflict |
 | `404` | `RESOURCE_NOT_FOUND` | Missing/non-owned resource; inactive catalogue detail |
-| `409` | `INSUFFICIENT_STOCK` | Quantity cannot be fulfilled (cart implemented) |
-| `409` | `PRODUCT_INACTIVE` | Cart product is no longer active |
+| `409` | `INSUFFICIENT_STOCK` | Quantity cannot be fulfilled (cart and checkout implemented) |
+| `409` | `PRODUCT_INACTIVE` | Cart/checkout product is no longer active |
 | `409` | `CART_CONFLICT` | Cart integrity/remaining lock conflict |
 | `409` | `CART_TOTAL_TOO_LARGE` | Current line/cart amount exceeds signed bigint |
-| `409` | `EMPTY_CART` | Promotion application has no cart/items; checkout remains planned |
-| `409` | `INVALID_ORDER_STATUS` | Status transition/cancellation is not allowed |
+| `409` | `EMPTY_CART` | Promotion application has no cart/items |
+| `409` | `CART_EMPTY` | Checkout has no cart/items |
+| `409` | `CHECKOUT_CONFLICT` | Checkout integrity/exhausted concurrency conflict |
+| `409` | `INVALID_ORDER_STATUS` | Proposed future cancellation/status conflict; not implemented |
 | `422` | `VALIDATION_FAILED` | Request field validation |
 | `404` | `PROMOTION_NOT_FOUND` | Unknown normalized code |
 | `422` | `PROMOTION_INACTIVE` | Code is inactive |
@@ -247,11 +284,11 @@ The server ignores/rejects client price and total fields. A formal idempotency-k
 | `500` | `INTERNAL_ERROR` | Unexpected failure; details not exposed |
 | `503` | `SERVICE_UNAVAILABLE` | Optional readiness/dependency failure |
 
-Authentication, catalogue, cart, and promotion mappings above are implemented. Checkout/order-specific mappings and endpoints remain planned. Product endpoints use the existing validation and not-found mappings.
+Authentication, catalogue, cart, promotion, and checkout mappings/endpoints above are implemented. Order browsing/cancellation remain planned. Product endpoints use the existing validation and not-found mappings.
 
 ## Resource outline
 
-A product exposes `id`, `name`, `sku`, `description`, money-valued `price`, `stock_quantity` (or a future availability abstraction), `status`, and timestamps. An order exposes status, currency, subtotal, discount, total, optional promotion-code snapshot, cancellation timestamp, timestamps, and item snapshots. Passwords, password hashes, internal lock/counter fields, and unrelated foreign keys are never exposed. A new token is exposed only in its registration/login issuance response.
+A product exposes `id`, `name`, `sku`, `description`, money-valued `price`, `stock_quantity` (or a future availability abstraction), `status`, and timestamps. An order exposes ID/customer, placed status, purchase currency, subtotal, discount, total, optional historical promotion calculation inputs, purchase/audit timestamps, and item snapshots. No cancellation fields are exposed. Passwords, password hashes, internal lock/counter fields, and unrelated foreign keys are never exposed. A new token is exposed only in its registration/login issuance response.
 
 ## Promotion API details (Milestone 4)
 

@@ -1,6 +1,6 @@
 # 06 — Database Design
 
-Products, carts/items, and promotions/redemption ledger are implemented in Milestones 2–4 alongside the existing Laravel/Sanctum tables. The remaining commerce tables below are target designs for later milestones; authentication requires no additional migration.
+Products, carts/items, promotions/redemption ledger, and orders/items are implemented in Milestones 2–5 alongside the existing Laravel/Sanctum tables. Cancellation fields remain out of scope.
 
 ## Conventions
 
@@ -90,63 +90,60 @@ The unique `promotions_code_unique` index supports lookup; CHECK `promotions_cod
 
 Migrations: `2026_10_06_142158_create_promotions_table.php` and `2026_10_06_142200_add_promotion_id_to_carts_table.php`. Apply additively; rollback detaches all selections and drops promotion data after dependent tables are removed. Prefer deactivation; deletion of an unredeemed promotion detaches cart selections without deleting lines.
 
-### `orders`
-
-| Column | Notes |
-|---|---|
-| `id` | Primary key |
-| `user_id` | FK, restrict deletion for audit history |
-| `status` | Proposed order-status enum |
-| `currency` | ISO-style 3-character code, proposed single configured value |
-| `subtotal_minor` | Non-negative |
-| `discount_minor` | Non-negative and `<= subtotal_minor` |
-| `total_minor` | Non-negative; check `subtotal - discount = total` |
-| `promotion_id` | Nullable FK, restrict or retain via snapshot policy |
-| `promotion_code` | Nullable historical code snapshot |
-| `cancelled_at` | Nullable timestamp |
-| `inventory_restored_at` | Nullable timestamp; exactly-once restoration marker |
-| timestamps | Audit fields |
-
-Indexes: `(user_id, created_at desc)` and `(status, created_at)`.
-
-### `order_items`
-
-| Column | Notes |
-|---|---|
-| `id` | Primary key |
-| `order_id` | FK, cascade only if order deletion is ever allowed |
-| `product_id` | Nullable/restricted FK according to retention decision |
-| `product_name` | Snapshot |
-| `product_sku` | Snapshot |
-| `unit_price_minor` | Non-negative snapshot |
-| `quantity` | Positive integer |
-| `line_total_minor` | Check `unit_price_minor * quantity = line_total_minor` where practical |
-| timestamps | Audit fields |
-
-Historical snapshot fields are authoritative for displaying an old order.
-
-### `promotion_redemptions` (ledger prepared in Milestone 4)
+### `orders` (implemented in Milestone 5)
 
 | Column | Notes |
 |---|---|
 | `id` | Generated bigint identity PK |
-| `promotion_id` | Required FK, RESTRICT deletion |
-| `user_id` | Required FK, RESTRICT deletion |
-| `redemption_key` | Required UUID, globally unique; future stable checkout replay identity |
-| `discount_minor` | Required bigint, CHECK `>= 0`; applied discount snapshot |
+| `user_id` | Required FK to users; RESTRICT deletion |
+| `status` | varchar(16), default and CHECK `placed`; OrderStatus enum |
+| `currency` | Required three uppercase ASCII letters; purchase-time deployment currency |
+| `subtotal_minor`, `discount_minor`, `total_minor` | Required bigint; nonnegative, discount <= subtotal, total = subtotal - discount |
+| `promotion_id` | Nullable FK; RESTRICT deletion; indexed |
+| `promotion_code_snapshot` | Nullable varchar(64), historical canonical code |
+| `promotion_type_snapshot`, `promotion_value_snapshot` | Historical fixed/minor-unit or percentage/basis-point inputs |
+| `promotion_maximum_discount_minor_snapshot` | Nullable positive bigint purchase-time cap |
+| `idempotency_key` | Nullable varchar(128); valid ASCII format; unique together with user_id |
+| `placed_at` | Required timestamptz(6) |
+| `created_at`, `updated_at` | timestampsTz audit fields |
+
+Indexes: unique `(user_id, idempotency_key)` permits multiple NULL keys and serves owner/key lookups; `(user_id, placed_at, id)` supports future history; `promotion_id` serves the FK. PostgreSQL checks enforce money, currency, status, key format, and coherent promotion snapshots. No selection means zero discount and NULL promotion snapshots. No payment/cancellation/restoration fields are added.
+
+### `order_items` (implemented in Milestone 5)
+
+| Column | Notes |
+|---|---|
+| `id` | Generated bigint identity PK |
+| `order_id`, `product_id` | Required real FKs; RESTRICT deletion to retain history |
+| `product_name`, `product_sku` | Required immutable purchase-time varchar(255) snapshots |
+| `quantity` | Positive bigint |
+| `unit_price_minor`, `line_subtotal_minor` | Nonnegative bigint; exact quantity × price |
+| `created_at`, `updated_at` | timestampsTz audit fields |
+
+Unique `(order_id, product_id)` also serves the order FK. Product FK has a standalone index. The monetary CHECK casts operands to PostgreSQL exact `numeric` before multiplication, so invalid products beyond bigint range produce a check failure without overflowing the CHECK itself. Application money still uses only checked PHP integers. Resources read snapshot fields, never live product data. There is no order/item edit endpoint.
+
+### `promotion_redemptions` (ledger prepared in Milestone 4; real order link in Milestone 5)
+
+| Column | Notes |
+|---|---|
+| `id` | Generated bigint identity PK |
+| `promotion_id`, `user_id` | Required real FKs, RESTRICT deletion |
+| `order_id` | Additive nullable FK to orders, RESTRICT deletion, unique (one redemption per order) |
+| `redemption_key` | Required globally unique UUID; unchanged identity |
+| `discount_minor` | Nonnegative bigint applied-discount snapshot |
 | `redeemed_at` | Required timestamptz(6) |
 | `created_at`, `updated_at` | timestampsTz audit fields |
 
-Migration: `2026_10_06_142159_create_promotion_redemptions_table.php`. Index `(promotion_id, user_id)` supports global (leading prefix) and customer counts, plus `user_id` for the customer FK. A unique redemption-key index prepares deduplication; no usage counter is stored. Records represent successful redemptions, never attached/reserved/pending codes. This milestone has no application ledger writer/endpoint: tests use factories only. Rollback drops history and is destructive.
+Existing `(promotion_id, user_id)` and user_id indexes and unique UUID are preserved. All legacy ledger rows, including NULL order links, count toward usage. The inspected development ledger had zero rows; earlier test fixtures and other deployments can still contain valid history without an order. The safe additive migration leaves order_id nullable instead of inventing historical orders. The checkout repository writer requires a persisted order, derives customer/promotion/discount from it, and always writes its FK. Direct SQL can still insert a NULL legacy link; making it mandatory for all imports requires a later genuine-data backfill/rollout decision. No placeholder order or development sample-order seeder is created.
 
-No `order_id` column or fictional order exists now. Checkout must add `order_id` with a real FK and uniqueness (one redemption/order), link/backfill genuine records according to rollout policy, and require it for new successful redemptions. Use a stable key persisted by the successful order/workflow and reuse it for replay, rather than generating a new key on every retry. Unique keys/FKs prepare exactly-once accounting but do not enforce usage limits or complete checkout idempotency on their own. Future service writers must lock the promotion, check counts, and insert the ledger record inside the same order/inventory transaction.
+Migrations: `2026_10_06_151221_create_orders_table.php`, `2026_10_06_151222_create_order_items_table.php`, and `2026_10_06_151223_add_order_id_to_promotion_redemptions_table.php`. Apply additively with `migrate`; never reset development. Rollback removes the order link then item/order tables and loses purchase history/linkage, so prefer forward fixes for retained data. Tests verify upgrade compatibility with a ledger row created before the additive migration and check FK/uniqueness/deletion constraints.
 
 ## Relationships
 
 - User `1—1` Cart; Cart `1—many` CartItem; Product `1—many` CartItem.
 - User `1—many` Order; Order `1—many` OrderItem; Product `1—many` OrderItem references plus snapshots.
 - Promotion `1—many` Carts, Orders, and PromotionRedemptions.
-- User `1—many` PromotionRedemptions; Order `1—0..1` PromotionRedemption (order link planned).
+- User `1—many` PromotionRedemptions; Order `1—0..1` PromotionRedemption (real order link implemented; nullable legacy links preserved).
 
 ## Integrity and deletion policy
 

@@ -7,6 +7,7 @@ use App\DTOs\Product\ProductQuery;
 use App\Enums\ProductStatus;
 use App\Models\Product;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use InvalidArgumentException;
 
 class EloquentProductRepository implements ProductRepositoryInterface
@@ -56,5 +57,24 @@ class EloquentProductRepository implements ProductRepositoryInterface
     public function findByIdForUpdate(int $id): ?Product
     {
         return Product::query()->lockForUpdate()->find($id);
+    }
+
+    /**
+     * @param  array<int, int>  $ids
+     * @return Collection<int, Product>
+     */
+    public function lockByIds(array $ids): Collection
+    {
+        return Product::query()->whereKey($ids)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+    }
+
+    public function deductStock(Product $product, int $quantity): bool
+    {
+        if ($quantity < 1) {
+            throw new InvalidArgumentException('Inventory deduction must be positive.');
+        }
+
+        return Product::query()->whereKey($product->id)->where('stock_quantity', '>=', $quantity)
+            ->decrement('stock_quantity', $quantity) === 1;
     }
 }

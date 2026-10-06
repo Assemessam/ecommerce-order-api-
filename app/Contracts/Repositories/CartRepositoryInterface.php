@@ -28,4 +28,8 @@ interface CartRepositoryInterface
     public function loadItems(Cart $cart): Cart;
 
     public function setPromotion(Cart $cart, ?Promotion $promotion): void;
+
+    public function loadCheckoutItems(Cart $cart): Cart;
+
+    public function clear(Cart $cart): void;
 }

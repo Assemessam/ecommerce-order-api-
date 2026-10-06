@@ -23,11 +23,18 @@ $payload = json_decode(stream_get_contents(STDIN), true, flags: JSON_THROW_ON_ER
 DB::select('SELECT set_config(?, ?, false)', ['application_name', $payload['application_name']]);
 DB::select('SELECT set_config(?, ?, false)', ['lock_timeout', '10s']);
 $connection = DB::selectOne('SELECT pg_backend_pid() AS pid, current_database() AS database');
-$request = Request::create($payload['path'], $payload['method'], server: [
+DB::enableQueryLog();
+$server = [
     'HTTP_ACCEPT' => 'application/json',
     'CONTENT_TYPE' => 'application/json',
     'HTTP_AUTHORIZATION' => 'Bearer '.$payload['token'],
-], content: json_encode($payload['body'], JSON_THROW_ON_ERROR));
+];
+
+if (isset($payload['idempotency_key'])) {
+    $server['HTTP_IDEMPOTENCY_KEY'] = $payload['idempotency_key'];
+}
+
+$request = Request::create($payload['path'], $payload['method'], server: $server, content: json_encode($payload['body'], JSON_THROW_ON_ERROR));
 $response = $kernel->handle($request);
 $kernel->terminate($request, $response);
 
@@ -36,4 +43,5 @@ echo json_encode([
     'body' => $response->getContent() === '' ? null : json_decode($response->getContent(), true, flags: JSON_THROW_ON_ERROR),
     'pid' => $connection->pid,
     'database' => $connection->database,
+    'locks' => collect(DB::getQueryLog())->filter(fn (array $query): bool => str_contains($query['query'], 'for update'))->pluck('query')->all(),
 ], JSON_THROW_ON_ERROR);

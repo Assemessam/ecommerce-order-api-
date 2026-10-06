@@ -1,6 +1,6 @@
 # E-Commerce Order & Promotion API
 
-Production-oriented backend assessment for product discovery, customer carts, promotions, transactional checkout, inventory safety, orders, and cancellation. This repository contains the Laravel foundation, **Milestone 1: Authentication & API Foundation**, **Milestone 2: Product Catalogue**, **Milestone 3: Shopping Cart**, and **Milestone 4: Promotions & Discount Engine**. Checkout, orders, and cancellation remain unimplemented.
+Production-oriented backend assessment for product discovery, customer carts, promotions, transactional checkout, inventory safety, orders, and cancellation. This repository contains the Laravel foundation, **Milestone 1: Authentication & API Foundation**, **Milestone 2: Product Catalogue**, **Milestone 3: Shopping Cart**, and **Milestone 4: Promotions & Discount Engine**, plus **Milestone 5: Transactional Checkout & Order Creation**. Order browsing and cancellation remain unimplemented.
 
 ## Technology stack
 
@@ -101,12 +101,13 @@ Implemented:
 - Product Service/Repository, PostgreSQL integrity constraints, factory, repeatable sample seeder, and catalogue tests.
 - Authenticated owner-scoped cart reads/adds/updates/deletes, exact current-price estimates, availability feedback, PostgreSQL constraints, atomic mutations, and real concurrent HTTP request tests.
 - Normalized percentage/fixed codes, PostgreSQL integrity constraints, reusable integer calculation, ledger-based eligibility, cart promotion application/removal, fresh eligibility on estimates, factories/seeder, and independent-process contention tests.
+- Atomic authenticated checkout, immutable order/item snapshots, conditional inventory deduction, locked promotion consumption, customer-scoped idempotency, rollback and real PostgreSQL concurrency tests.
 
 Not implemented yet:
 
-- Checkout, orders, inventory deduction, and cancellation.
+- Order listing/detail, cancellation, and inventory restoration.
 
-Milestone 4 is complete; stop here for review. The next planned milestone is **Milestone 5: Checkout**, which has not started. Remaining business proposals are recorded in [`docs/01-business-discovery.md`](docs/01-business-discovery.md); no checkout or order decisions were changed.
+Milestone 5 is complete; stop here for review. The recommended next milestone is **Milestone 6: Orders and cancellation**, after approval of cancellation rules. See [`docs/11-checkout.md`](docs/11-checkout.md) for the checkout implementation and verification report.
 
 ## Product catalogue
 
@@ -267,7 +268,7 @@ Cart GET, item POST/PATCH, and promotion POST add `promotion`, `promotion_eligib
 
 Fixed values use integer minor units; percentages use basis points (2000 = 20%). Percentage discounts round half-up, apply any positive cap, and never exceed subtotal. The calculator avoids full-subtotal multiplication and remains exact through signed bigint maximum. Minimum spend uses pre-discount subtotal. UTC validity uses inclusive `starts_at` and exclusive `expires_at`; null bounds are unbounded. Null usage limits mean unlimited; non-null limits are positive.
 
-**Application is not redemption or reservation.** Inventory and usage stay unchanged. The `promotion_redemptions` ledger has restricted promotion/customer FKs, a unique UUID redemption key, discount snapshot, and redemption timestamp. No redemption endpoint, counter, order table, or fictional order reference exists. Only factory fixtures populate the ledger in this milestone. Future checkout must add a unique order FK, reuse a stable redemption key, lock Cart → Products (ascending ID) → Promotion → Customer usage, revalidate, and insert redemption in the same successful order/inventory transaction. Checkout-time limit enforcement and exactly-once workflow behavior are not implemented or verified.
+**Cart promotion application is not redemption or reservation.** Selection leaves inventory and usage unchanged. The `promotion_redemptions` ledger retains restricted promotion/customer FKs, unique UUID identity, discount snapshot, and redemption timestamp. Milestone 5 adds a unique real order FK and writes redemptions only inside successful checkout, under Cart → Products ascending ID → Promotion → ledger locking. Checkout consumption, rollback, and replay are verified; no counter or separate redemption endpoint is introduced.
 
 Promotion writes lock the owner cart in one short service transaction, with bounded retries and safe 409 conflict handling. Product estimates take no product row locks. GET is unlocked; a selected promotion uses up to five domain queries (four eager-load queries plus one aggregate for limited codes), independent of line count. See [architecture](docs/05-architecture.md), [schema](docs/06-database-design.md), [API examples](docs/07-api-contracts.md), and [executed verification](docs/09-testing-strategy.md).
 
@@ -286,3 +287,34 @@ docker compose exec -T api php artisan test --compact \
   tests/Feature/Services/Cart/CartConcurrencyTest.php \
   tests/Feature/Services/Cart/CartPromotionConcurrencyTest.php
 ```
+
+## Transactional checkout — Milestone 5
+
+`POST /api/checkout` requires a Sanctum bearer token and purchases the authenticated customer's persisted cart, including its selected promotion. No body/query purchase parameters are accepted; client identity, prices, names, stock, coupon, and totals cannot alter checkout. Initial success returns 201 with an order whose status is `placed`, historical items, currency, subtotal, discount, total, promotion calculation snapshot, and purchase timestamp.
+
+Optional `Idempotency-Key` is a case-sensitive 1..128-character ASCII value: start with a letter/digit, then letters/digits/period/underscore/colon/hyphen. The same customer replaying a successful key receives 200 with the original order, without another inventory deduction or redemption. Even if the cart has been refilled, the old key returns the old order and leaves that cart untouched; use a new key for a new purchase. Keys have no expiry. Failed attempts store no key association. Different/no keys against the cleared cart return 409 `CART_EMPTY`.
+
+```bash
+curl -X POST http://localhost:8091/api/checkout \
+  -H 'Accept: application/json' \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Idempotency-Key: purchase-2026-10-06-001'
+```
+
+CheckoutService owns one PostgreSQL transaction, with three attempts for detected concurrency failures. It locks **Cart → Products ascending ID → Promotion**, validates current active/stock/price and promotion eligibility, creates snapshots, conditionally deducts stock, inserts a real order-linked redemption, and clears items/selection. Promotion usage counts are read only after its row lock; the lock serializes first use even without an existing customer ledger row. Any exception rolls back all writes. Money uses the existing integer-safe subtotal and basis-point/half-up calculator. No external effects occur in the transaction.
+
+Apply the three additive schema migrations:
+
+```bash
+docker compose exec -T api php artisan migrate --no-interaction
+```
+
+Run the focused and independent-process concurrency suites sequentially against the isolated PostgreSQL database:
+
+```bash
+docker compose exec -T api php artisan test --compact tests/Feature/Http/Controllers/Api/CheckoutControllerTest.php tests/Feature/Services/Checkout/CheckoutServiceTest.php tests/Feature/Models/OrderTest.php
+docker compose exec -T api php artisan test --compact tests/Feature/Services/Checkout/CheckoutConcurrencyTest.php
+docker compose exec -T api php artisan test --compact
+```
+
+Order factories support isolated tests; development never seeds fictional purchase history. The nullable unique redemption order FK preserves legacy ledger records; every successful checkout writes a non-null real order FK. Detailed [API examples](docs/07-api-contracts.md), [schema](docs/06-database-design.md), and the [checkout report with concurrency evidence](docs/11-checkout.md) document constraints, rollback, isolation assumptions, and trade-offs. Order browsing, cancellation, and inventory restoration remain for the next milestone.

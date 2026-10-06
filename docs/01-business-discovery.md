@@ -42,8 +42,8 @@ These are design proposals, not silently invented requirements.
 2. **Identifiers:** PostgreSQL `bigint` identity keys. Implication: simple Eloquent integration; public opaque identifiers can be introduced later if enumeration risk matters.
 3. **Cart reservation (confirmed in Milestone 3):** adding an item does not reserve stock. Implication: checkout can still fail if another customer buys the remaining stock.
 4. **One active cart (confirmed in Milestone 3):** each customer has one cart. Implication: no saved/multiple-cart UI semantics.
-5. **Price changes (cart estimates confirmed in Milestone 3; checkout remains planned):** current product prices are authoritative at checkout. Implication: a cart display is an estimate and may change before purchase.
-6. **Order lifecycle:** `pending`, `confirmed`, `processing`, `shipped`, `completed`, `cancelled`; customers may cancel only `pending` or `confirmed`. This requires stakeholder confirmation before order implementation.
+5. **Price changes (confirmed for checkout in Milestone 5):** current product prices are authoritative at checkout. Implication: a cart display is an estimate and may change before purchase.
+6. **Order lifecycle (Milestone 5 decision):** checkout creates `placed` orders. The earlier pending/confirmed/payment-style lifecycle is superseded. Cancellation eligibility and later transitions require approval in Milestone 6.
 7. **Payment:** no gateway or payment state is included in the assessment. Checkout creates an order immediately when validation succeeds.
 8. **Promotion stacking (confirmed in Milestone 4 for carts):** one promotion per cart/order. Implication: discount calculation and lock ordering remain deterministic.
 9. **Tax and shipping:** excluded because neither was specified. Implication: `total = subtotal - discount` in the MVP.
@@ -67,4 +67,4 @@ These are design proposals, not silently invented requirements.
 - Cross-customer resource access is rejected without leaking existence.
 - Foundation and business milestones pass automated checks from a clean setup.
 
-Milestone 4 approves basis-point percentages, integer minor units, half-up rounding, inclusive start/exclusive expiry, ledger eligibility checks, and cart promotion APIs. Checkout, order linking, redemption writes, and concurrent consumption remain future work; cancellation policy remains open.
+Milestone 4 approves basis-point percentages, integer minor units, half-up rounding, inclusive start/exclusive expiry, ledger eligibility checks, and cart promotion APIs. Milestone 5 implements checkout, real order linking, redemption writes, and concurrent consumption. Cancellation policy remains open.

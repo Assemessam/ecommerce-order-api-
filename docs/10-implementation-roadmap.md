@@ -48,11 +48,11 @@ Review gate: accept cart contract, non-reservation semantics, and contention evi
 
 Review gate: promotion arithmetic and limits accepted before checkout integration.
 
-## Milestone 5 — Checkout
+## Milestone 5 — Checkout (implemented)
 
 - Implement `CheckoutService` transaction, authoritative price calculation, deterministic locks, order snapshots, inventory deduction, promotion usage, and cart clearing.
 - Add rollback and real concurrent PostgreSQL tests.
-- Decide and implement an idempotency-key contract if approved.
+- Implement approved optional customer-scoped header keys, permanent original-order replay, and database uniqueness.
 
 Review gate: contention tests prove no oversell/overuse and failure injection proves atomicity.
 
@@ -84,4 +84,4 @@ Review gate: inventory restores exactly once.
 
 ## Next recommended milestone
 
-Milestone 4 is implemented and stops here. After promotion review, the next planned milestone is **Milestone 5: Checkout**: real order FK, stable replay contract, atomic redemption under the promotion lock, inventory allocation, snapshots, and actual consumption contention/rollback tests. Do not start it as part of this milestone.
+Milestone 5 is implemented and stops here. The recommended next milestone is **Milestone 6: Orders and cancellation**: owner-scoped list/detail, approved cancellable states for the `placed` lifecycle, and exactly-once inventory restoration. No cancellation or next-milestone code is included. See `11-checkout.md` for checkout evidence.

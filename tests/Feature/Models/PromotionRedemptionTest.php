@@ -36,10 +36,12 @@ it('preserves audit records when referenced customers or promotions are deleted'
     $this->assertModelExists($redemption);
 })->with(['user', 'promotion']);
 
-it('exposes the promotion and customer ledger relationships without an order placeholder', function () {
+it('preserves legacy ledger relationships without creating an order placeholder', function () {
     $redemption = PromotionRedemption::factory()->create();
 
     expect($redemption->promotion->redemptions->sole()->id)->toBe($redemption->id);
     expect($redemption->user->promotionRedemptions->sole()->id)->toBe($redemption->id);
-    expect($redemption->getAttributes())->not->toHaveKey('order_id');
+    expect($redemption->order_id)->toBeNull();
+    expect($redemption->order)->toBeNull();
+    $this->assertDatabaseCount('orders', 0);
 });

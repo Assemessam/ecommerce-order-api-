@@ -47,3 +47,5 @@ Each increment requires migrations, implementation, focused tests, formatting/st
 - No business endpoint or domain implementation is included.
 
 Milestone 4 delivers promotions and cart integration only: eligibility/calculation, ledger preparation, attach/remove endpoints, and estimate revalidation. Checkout, orders/items, redemption writes, inventory changes, cancellation, payments, admin CRUD, frontend, and caching are excluded from this milestone.
+
+Milestone 5 delivers transactional checkout/order creation, inventory deduction, real promotion redemption, optional idempotency, snapshots, rollback, and PostgreSQL contention evidence. It stops before order browsing/cancellation, restoration, payments, shipping, refunds, administration, frontend, caching, or any additional infrastructure. See `11-checkout.md`.

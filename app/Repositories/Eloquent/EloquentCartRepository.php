@@ -73,4 +73,15 @@ class EloquentCartRepository implements CartRepositoryInterface
         $cart->promotion()->associate($promotion);
         $cart->save();
     }
+
+    public function loadCheckoutItems(Cart $cart): Cart
+    {
+        return $cart->load('items');
+    }
+
+    public function clear(Cart $cart): void
+    {
+        $cart->items()->delete();
+        $this->setPromotion($cart, null);
+    }
 }

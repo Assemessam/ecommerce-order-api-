@@ -22,6 +22,12 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
 
+    /** @return HasMany<Order, $this> */
+    public function orders(): HasMany
+    {
+        return $this->hasMany(Order::class);
+    }
+
     /** @return HasMany<PromotionRedemption, $this> */
     public function promotionRedemptions(): HasMany
     {

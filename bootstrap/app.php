@@ -3,7 +3,9 @@
 use App\Enums\PromotionIneligibilityReason;
 use App\Exceptions\Domain\CartConflictException;
 use App\Exceptions\Domain\CartTotalTooLargeException;
+use App\Exceptions\Domain\CheckoutConflictException;
 use App\Exceptions\Domain\EmailAlreadyRegisteredException;
+use App\Exceptions\Domain\EmptyCartException;
 use App\Exceptions\Domain\InactiveProductException;
 use App\Exceptions\Domain\InsufficientStockException;
 use App\Exceptions\Domain\InvalidCredentialsException;
@@ -51,6 +53,8 @@ return Application::configure(basePath: dirname(__DIR__))
                 $exception instanceof InsufficientStockException,
                 $exception instanceof InactiveProductException,
                 $exception instanceof CartConflictException,
+                $exception instanceof CheckoutConflictException,
+                $exception instanceof EmptyCartException,
                 $exception instanceof CartTotalTooLargeException => 409,
                 default => $response->getStatusCode(),
             };
@@ -85,6 +89,10 @@ return Application::configure(basePath: dirname(__DIR__))
                 $error = ['code' => 'CART_CONFLICT', 'message' => 'The cart could not be modified. Refresh the cart and try again.'];
             } elseif ($exception instanceof CartTotalTooLargeException) {
                 $error = ['code' => 'CART_TOTAL_TOO_LARGE', 'message' => 'The cart amount exceeds the supported integer range.'];
+            } elseif ($exception instanceof EmptyCartException) {
+                $error = ['code' => 'CART_EMPTY', 'message' => 'The cart must contain at least one item.'];
+            } elseif ($exception instanceof CheckoutConflictException) {
+                $error = ['code' => 'CHECKOUT_CONFLICT', 'message' => 'Checkout could not be completed. Refresh the cart and try again.'];
             }
 
             if ($exception instanceof ValidationException) {
