@@ -1,6 +1,6 @@
 # 06 — Database Design
 
-Products are implemented in Milestone 2 alongside the existing Laravel/Sanctum tables. The remaining commerce tables below are target designs for later milestones; authentication requires no additional migration.
+Products, carts/items, and promotions/redemption ledger are implemented in Milestones 2–4 alongside the existing Laravel/Sanctum tables. The remaining commerce tables below are target designs for later milestones; authentication requires no additional migration.
 
 ## Conventions
 
@@ -46,46 +46,49 @@ Name search uses literal case-insensitive substring `ILIKE`. B-tree name indexin
 
 `ProductSeeder` is an explicit, repeatable sample command: six known SKUs spanning active/inactive, in/out of stock, and different names/prices. Existing demo records and unrelated products/customers are preserved. It is deliberately not chained through the unrelated `DatabaseSeeder`.
 
-### `carts`
+### `carts` (implemented in Milestone 3)
 
 | Column | Notes |
 |---|---|
-| `id` | Primary key |
-| `user_id` | Unique FK to users; one cart/customer |
-| `promotion_id` | Nullable FK; selected promotion is only provisional |
-| timestamps | Audit fields |
+| `id` | Generated bigint identity primary key |
+| `user_id` | Required bigint FK to users, unique; one cart/customer; cascade on user deletion |
+| `promotion_id` | Nullable bigint FK to promotions; SET NULL on deletion; indexed; one selection |
+| `created_at`, `updated_at` | `timestampsTz()` audit fields |
 
-Deleting a user may cascade to their active cart subject to future retention policy. A promotion referenced by a cart should use `nullOnDelete`.
+`carts_user_id_unique` serves owner lookup and the user FK index. Carts are created only by successful POST mutations; GET for a customer without a row does not insert one. Removing the final item preserves the cart. Milestone 4 adds nullable `promotion_id` without rewriting existing cart rows.
 
-### `cart_items`
-
-| Column | Notes |
-|---|---|
-| `id` | Primary key |
-| `cart_id` | FK, cascade on cart deletion |
-| `product_id` | FK, restrict deletion while referenced |
-| `quantity` | Positive integer |
-| timestamps | Audit fields |
-
-Unique `(cart_id, product_id)` prevents duplicate lines. Cart items do not persist an authoritative price.
-
-### `promotions`
+### `cart_items` (implemented in Milestone 3)
 
 | Column | Notes |
 |---|---|
-| `id` | Primary key |
-| `code` | Required, normalized, case-insensitive unique |
-| `type` | `percentage` or `fixed` |
-| `value` | Basis points for percentage; minor units for fixed |
-| `minimum_cart_amount_minor` | Nullable/non-negative |
-| `maximum_discount_minor` | Nullable/non-negative; meaningful primarily for percentage |
-| `starts_at`, `ends_at` | Nullable inclusive validity bounds; start <= end |
-| `global_usage_limit` | Nullable positive integer |
-| `per_customer_usage_limit` | Nullable positive integer |
-| `is_active` | Boolean |
-| timestamps | Audit fields |
+| `id` | Generated bigint identity primary key |
+| `cart_id` | Required bigint FK; cascade on cart deletion |
+| `product_id` | Required bigint FK; restrict product deletion while referenced; standalone index |
+| `quantity` | Required signed bigint, CHECK `quantity > 0` |
+| `created_at`, `updated_at` | `timestampsTz()` audit fields |
 
-The type determines the `value` constraint: percentage `1..10000`; fixed `> 0`.
+`cart_items_cart_id_product_id_unique` enforces one line/product/cart and supports cart loading and the cart FK. `cart_items_product_id_index` supports product references/deletion checks; no redundant cart-only index is added. `cart_items_quantity_positive` protects all writes, including direct SQL. Cart items store no names, prices, reservation fields, or historical snapshots; estimates use current products. Product deactivation retains referenced lines. Cart/item/customer deletion never changes product stock.
+
+Migrations: `2026_10_06_135748_create_carts_table.php` and `2026_10_06_135749_create_cart_items_table.php`. Development applies them additively. Rollback drops cart items then carts and loses that cart data; it does not alter users/products. The CHECK DDL follows the existing static PostgreSQL migration convention. Cart factories exist for tests; no customer/cart sample seeding runs in development.
+
+### `promotions` (implemented in Milestone 4)
+
+| Column | Notes |
+|---|---|
+| `id` | Generated bigint identity PK |
+| `code` | Required varchar(64), unique canonical ASCII uppercase code; begins with letter/digit, then letters/digits/underscore/hyphen |
+| `type` | Required varchar(16), CHECK `percentage` or `fixed`; PromotionType enum |
+| `value` | Required bigint; percentage basis points `1..10000`, fixed minor units `> 0` |
+| `minimum_cart_amount_minor` | Required bigint, default 0, CHECK `>= 0` |
+| `maximum_discount_minor` | Nullable bigint, CHECK `> 0` when supplied; caps both types |
+| `starts_at`, `expires_at` | Nullable timestamptz(6); start inclusive, expiry exclusive; CHECK `starts_at < expires_at` when both supplied |
+| `global_usage_limit`, `per_customer_usage_limit` | Nullable bigint; NULL = unlimited; CHECK positive when supplied |
+| `is_active` | Required boolean, default true |
+| `created_at`, `updated_at` | timestampsTz audit fields |
+
+The unique `promotions_code_unique` index supports lookup; CHECK `promotions_code_normalized` requires canonical storage even for raw imports. Eloquent trims/uppercases codes; imports must do the same. Canonical format plus uniqueness rejects all equivalent case/space variants. Other named checks enforce type/value, minimum/cap, limits, and date ordering; no duplicate normalized-expression index or unused status index is necessary. Null bounds are unbounded; empty/reversed windows are invalid. Models preserve timezone offsets and fractional seconds when writing, and comparisons use UTC.
+
+Migrations: `2026_10_06_142158_create_promotions_table.php` and `2026_10_06_142200_add_promotion_id_to_carts_table.php`. Apply additively; rollback detaches all selections and drops promotion data after dependent tables are removed. Prefer deactivation; deletion of an unredeemed promotion detaches cart selections without deleting lines.
 
 ### `orders`
 
@@ -122,25 +125,28 @@ Indexes: `(user_id, created_at desc)` and `(status, created_at)`.
 
 Historical snapshot fields are authoritative for displaying an old order.
 
-### `promotion_usages`
+### `promotion_redemptions` (ledger prepared in Milestone 4)
 
 | Column | Notes |
 |---|---|
-| `id` | Primary key |
-| `promotion_id` | FK, restrict deletion |
-| `user_id` | FK, restrict deletion pending retention policy |
-| `order_id` | Unique FK; one usage per order |
-| `discount_minor` | Non-negative applied discount snapshot |
-| `used_at` | Timestamp |
+| `id` | Generated bigint identity PK |
+| `promotion_id` | Required FK, RESTRICT deletion |
+| `user_id` | Required FK, RESTRICT deletion |
+| `redemption_key` | Required UUID, globally unique; future stable checkout replay identity |
+| `discount_minor` | Required bigint, CHECK `>= 0`; applied discount snapshot |
+| `redeemed_at` | Required timestamptz(6) |
+| `created_at`, `updated_at` | timestampsTz audit fields |
 
-Indexes: `(promotion_id, user_id)` for per-customer counts and `(promotion_id, used_at)` for global counts. A denormalized `used_count` on promotions is optional; if added, it is authoritative only when updated under the promotion lock in the same transaction.
+Migration: `2026_10_06_142159_create_promotion_redemptions_table.php`. Index `(promotion_id, user_id)` supports global (leading prefix) and customer counts, plus `user_id` for the customer FK. A unique redemption-key index prepares deduplication; no usage counter is stored. Records represent successful redemptions, never attached/reserved/pending codes. This milestone has no application ledger writer/endpoint: tests use factories only. Rollback drops history and is destructive.
+
+No `order_id` column or fictional order exists now. Checkout must add `order_id` with a real FK and uniqueness (one redemption/order), link/backfill genuine records according to rollout policy, and require it for new successful redemptions. Use a stable key persisted by the successful order/workflow and reuse it for replay, rather than generating a new key on every retry. Unique keys/FKs prepare exactly-once accounting but do not enforce usage limits or complete checkout idempotency on their own. Future service writers must lock the promotion, check counts, and insert the ledger record inside the same order/inventory transaction.
 
 ## Relationships
 
 - User `1—1` Cart; Cart `1—many` CartItem; Product `1—many` CartItem.
 - User `1—many` Order; Order `1—many` OrderItem; Product `1—many` OrderItem references plus snapshots.
-- Promotion `1—many` Carts, Orders, and PromotionUsages.
-- User `1—many` PromotionUsages; Order `1—0..1` PromotionUsage.
+- Promotion `1—many` Carts, Orders, and PromotionRedemptions.
+- User `1—many` PromotionRedemptions; Order `1—0..1` PromotionRedemption (order link planned).
 
 ## Integrity and deletion policy
 

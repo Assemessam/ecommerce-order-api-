@@ -24,19 +24,26 @@ Milestone 2 confirms BR-P01..P03. Availability means **active and positive stock
 - BR-C02: A cart contains at most one line per product; adding the same product merges quantities.
 - BR-C03: Only the authenticated owner may view or modify a cart/line.
 - BR-C04: Cart monetary values are estimates calculated from current server-side product prices.
-- BR-C05: Removing the final item leaves an empty cart rather than deleting the cart record (proposed).
+- BR-C05: Removing the final item leaves an empty cart rather than deleting the cart record (implemented in Milestone 3).
+
+Milestone 3 implements BR-C01..C05 and cart stock rule BR-P05. GET without a persisted cart creates no row. POST is additive; PATCH replaces a positive quantity and zero is invalid. The product must be active and the resulting line quantity must fit current stock at mutation time. Stock is never reserved, deducted, or restored by cart operations, including deletion.
+
+- BR-C06: Existing unavailable lines remain visible with unchanged quantities. Reason precedence is inactive → out_of_stock → insufficient_stock; current-price totals still include them. Future modifications revalidate the affected product; DELETE remains available regardless of eligibility.
+- BR-C07: No request can supply ownership or authoritative price/total/reassignment data. Missing and inaccessible item IDs return indistinguishable 404 errors. Inactive mutations return 409 PRODUCT_INACTIVE; stock failures return 409 INSUFFICIENT_STOCK.
+- BR-C08: All cart mutations acquire the cart lock before dependent products/items, use one service transaction, and preserve database uniqueness. Concurrent first-cart creation and merging must not duplicate carts/lines or lose increments.
+- BR-C09: Monetary multiplication/accumulation is checked before signed-bigint overflow. Overflow returns 409 CART_TOTAL_TOO_LARGE and mutation writes roll back; DELETE permits recovery. No rounded/float total is returned.
 
 ## Promotions
 
-- BR-R01: A promotion must be active and the checkout instant must fall within inclusive start/end bounds when present.
-- BR-R02: Code matching is proposed as trimmed, uppercase, and case-insensitive unique.
-- BR-R03: Only one promotion applies to an order.
+- BR-R01 (implemented for cart estimates): Active promotions require UTC `starts_at <= now < expires_at` when bounds exist; null bounds are unbounded. Checkout must independently revalidate.
+- BR-R02: Codes are trimmed, uppercase, and canonical unique at the database boundary; 1..64 ASCII letters/digits/underscore/hyphen, beginning with letter/digit.
+- BR-R03: Only one promotion is selected per cart; future orders also support one promotion.
 - BR-R04: Minimum amount compares against the server-calculated pre-discount subtotal.
-- BR-R05: Fixed discount is `min(value, subtotal)`.
-- BR-R06: Percentage discount uses integer basis points. Proposal: round down to the nearest minor unit, then apply the maximum cap.
+- BR-R05: Fixed discount is `min(value, optional cap, subtotal)`.
+- BR-R06: Percentage discounts use integer basis points (1..10000), round half-up to the nearest minor unit, then clamp to cap/subtotal. The round-down proposal is superseded.
 - BR-R07: Discount never exceeds subtotal; total never becomes negative.
 - BR-R08: Nullable usage limits mean unlimited; non-null limits must be positive.
-- BR-R09: A promotion usage is recorded only in the same successful transaction as its order.
+- BR-R09: Redemption is recorded only in the same successful checkout transaction as its order. Applying/removing a cart code never consumes/restores/reserves usage; this milestone adds no redemption writer.
 - BR-R10: Cancellation does not release promotion usage (proposed and awaiting confirmation).
 
 ## Checkout and money
@@ -63,7 +70,7 @@ Milestone 2 confirms BR-P01..P03. Availability means **active and positive stock
 ## Authorization, errors, and privacy
 
 - BR-X01: Cart, checkout, and order endpoints require a valid Sanctum token.
-- BR-X02: A non-owned resource is treated as not found to avoid identifier enumeration (proposed).
+- BR-X02: A non-owned cart item is treated as not found to avoid identifier enumeration (implemented in Milestone 3); the same behavior remains proposed for future orders.
 - BR-X03: Expected business failures use stable machine-readable codes and safe messages.
 - BR-X04: Validation can reveal field-specific errors; unexpected exceptions never reveal stack traces or SQL in production.
 - BR-X05: Secrets, credentials, password values, and bearer tokens are never logged. A new bearer token is returned only in its successful registration/login issuance response; profiles and errors never expose it. Password values and hashes are never returned.
@@ -75,6 +82,8 @@ Milestone 2 confirms BR-P01..P03. Availability means **active and positive stock
 - Unique `carts.user_id` and `(cart_id, product_id)`.
 - Positive cart/order quantities.
 - Promotion date range and type-dependent value validity.
-- Unique `promotion_usages.order_id`.
+- Unique `promotion_redemptions.redemption_key`; unique real `order_id` FK remains a future checkout migration.
 - `0 <= discount_minor <= subtotal_minor` and `total_minor = subtotal_minor - discount_minor`.
 - Once `inventory_restored_at` is set, cancellation logic must never increment stock again.
+
+Milestone 4 implements BR-R01..R08 for estimates; BR-R09 is the future redemption contract, not an implemented checkout workflow. All cart lines must be purchasable and at least one line must exist. Invalid selections remain visible with zero discount; failed replacement preserves the original. Minimum compares pre-discount subtotal. Positive caps apply to both types. Global/customer limits count historical ledger rows (no pending reservations), and NULL limits remain unlimited. No inventory mutation or stacking is permitted.

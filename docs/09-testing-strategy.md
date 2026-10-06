@@ -35,7 +35,7 @@ Use factories and `LazilyRefreshDatabase` (or `RefreshDatabase` when needed) for
 
 ### Concurrency tests
 
-Run separate database connections/processes against PostgreSQL with barriers so requests genuinely overlap:
+Run separate database connections/processes against PostgreSQL with barriers so requests genuinely overlap. The following checkout/cancellation cases remain planned and unverified:
 
 1. Stock 5; checkout quantities 4 and 3 concurrently; assert at most one incompatible allocation succeeds and final stock is never negative.
 2. Promotion global limit 1; two eligible customers check out concurrently; assert one usage/order discount succeeds.
@@ -98,7 +98,7 @@ docker compose exec -T api php artisan test --compact tests/Feature/Http/Control
 
 Token lifecycle tests use actual persisted Sanctum tokens and Authorization headers. Between sequential protected requests they clear cached authentication guards to model independent HTTP requests. Rate-limit tests freeze/advance time without sleeping; test cache is isolated per application. Transactions roll back test records.
 
-No static analysis tool is installed or configured. Product catalogue API, service, repository, integrity, and seeder tests are implemented in Milestone 2 below. Cart, promotions, checkout, orders, cancellation, and real concurrency tests remain planned for later milestones and are not claimed as implemented.
+No static analysis tool is installed or configured. Product catalogue API, service, repository, integrity, and seeder tests are implemented in Milestone 2 below. Cart and actual HTTP concurrency tests are implemented in Milestone 3 below. Promotions are implemented in Milestone 4 below; checkout, orders, and cancellation remain planned.
 
 
 ## Milestone 1 executed verification
@@ -155,3 +155,219 @@ The initial focused run found a test-only attribute-array ordering mismatch; com
 The product migration was verified against real PostgreSQL: generated bigint identity, time-zone-aware timestamps, normalized unique SKU, four CHECK constraints, and four status-led composite indexes. Development migration was additive; destructive test refreshes used only `ecommerce_order_api_test`. No customer seeder was run in development. No dependencies, Docker configuration, commits, or pushes were introduced.
 
 Known limits: original FR-P03 SKU/description search remains deferred by the explicit name-only milestone scope. There is no specialized substring-search index or representative-load performance benchmark. No static analyzer is installed. No cart/order/concurrency functionality is claimed by this milestone.
+
+
+## Milestone 3 shopping cart coverage and concurrency mechanism
+
+Cart API tests cover all required endpoints with missing/invalid/revoked bearer authentication, empty reads with no write, owner isolation with/without an existing caller cart, forged owner/cart/product/price keys, add/merge/update/delete semantics, missing/inactive products, changed/out-of-stock products, invalid/missing/overflow quantities and IDs, server-derived/current prices, exact large amounts, configured currency, response allow-lists, overflow recovery, request IDs/no-store headers, and three-query eager loading for twelve lines. Model tests exercise PostgreSQL unique/CHECK/NOT NULL/FK constraints, cascade/restrict behavior, and model relationships. Service tests cover dependency binding, policy protection even if a repository supplies a wrong owner, cart-before-product lock ordering, internal quantity rules, business eligibility, changed-stock revalidation, maximum bigint accumulation, safe integrity mapping, and rollback after post-insert/calculation failures.
+
+Policy tests exercise both view/update abilities for owner/non-owner and verify 404 denials.
+
+Focused suite:
+
+```bash
+docker compose exec -T api php artisan test --compact tests/Feature/Http/Controllers/Api/CartControllerTest.php tests/Feature/Models/CartTest.php tests/Feature/Policies/CartPolicyTest.php tests/Feature/Services/Cart/CartServiceTest.php tests/Feature/Services/Cart/CartConcurrencyTest.php
+```
+
+Actual concurrency tests are in `tests/Feature/Services/Cart/CartConcurrencyTest.php`; `tests/Fixtures/cart-request.php` is a test-only PHP subprocess worker. Each worker boots the application, checks the isolated test connection before any query, and handles an authenticated JSON POST through the real HTTP kernel. Symfony Process passes the token through stdin rather than command arguments and propagates explicit testing environment/database configuration. No external development HTTP server is used.
+
+The test uses `DatabaseMigrations` rather than `LazilyRefreshDatabase`, so fixtures are committed and visible across connections. It asserts zero initial transaction nesting and Read Committed isolation. The parent holds a product lock, launches two independent processes, and polls `pg_stat_activity` through a separate observer connection until **both distinct worker backend PIDs are active and waiting on locks**. Queries must show the product `FOR UPDATE` and cart contention. Only then does it release the barrier. A five-second deadline fails the test instead of pretending sequential execution was concurrent; workers have bounded lock/process timeouts and cleanup always releases locks/stops workers. The short poll sleep synchronizes on observed database state, not a guessed overlap delay.
+
+Verified scenarios:
+
+| Scenario | HTTP results | Persisted result |
+|---|---|---|
+| No cart, stock 10, simultaneous +3/+3 | 201 + 201; responses contain quantities 3 and 6 | One cart, one line, quantity 6; stock 10 |
+| Existing quantity 1, stock 10, simultaneous +3/+3 | 201 + 201; responses contain quantities 4 and 7 | One cart, one line, quantity 7; stock 10 |
+| No cart, stock 5, simultaneous +3/+3 | 201 + 409 INSUFFICIENT_STOCK | One cart, one line, quantity 3; stock 5 |
+
+This evidence concerns cart mutation/creation safety. It does not prove future checkout allocation or promotion safety. All future cart writers must honor the same cart-lock convention. Run suite invocations sequentially; concurrent `migrate:fresh` runs against this single test database can interfere. Ordinary feature tests continue to use the existing test guard and transaction isolation. The initial development of these tests encountered an accidental overlap between two suite invocations and was rerun sequentially; final results below supersede those setup failures.
+
+
+## Milestone 3 executed verification — October 6, 2026
+
+All commands below used the existing Compose environment. Final checks after policy addition and Pint:
+
+| Check | Exact result |
+|---|---|
+| Complete preflight PostgreSQL suite | 172 passed, 761 assertions; 2.49s |
+| Final focused cart suite (five test files) | 99 passed, 442 assertions; 2.87s |
+| Standalone concurrent HTTP tests | 3 passed, 51 assertions; 1.07s; also passed in the final focused/full suites |
+| Final complete PostgreSQL regression suite | 271 passed, 1203 assertions; 5.21s |
+| `vendor/bin/pint --dirty --format agent` | Exit 0; corrected formatting/imports, including final service-test whitespace |
+| `composer validate --strict` | Exit 0; `./composer.json is valid` |
+| `composer audit` | Exit 0; no security vulnerability advisories found |
+| Static analysis | Not run: none installed/configured |
+| `git diff --check` | Passed |
+| Additive development `php artisan migrate --no-interaction` | Both cart migrations applied successfully |
+| Artisan schema inspection | Bigint identities, owner/line uniqueness, expected indexes, cascade/restrict FKs, timestamptz fields |
+| API route inspection | Eleven API routes including all four cart routes |
+| Live unauthenticated GET `/api/cart` | 401 UNAUTHENTICATED; matching request ID, no-store/private headers |
+| Development row counts after verification | Users 0, tokens 0, products 0, carts 0, cart_items 0 |
+| Unrelated `postgres-local` | Same ID/start time as preflight; running, zero restarts |
+
+The database-sensitive suites used only `ecommerce_order_api_test`; the development database received additive schema migration only. No container restart/reset, dependency change, unrelated code modification, commit, or push was made. The baseline Git tree was clean with latest commits `f84fefb` (catalogue) and `4d10dfc` (authentication/foundation); the final changes are unstaged milestone work. Boost schema inspection returned an empty schema in its context, so actual Compose schema was inspected with Artisan. Initial validation-message/JSON float encoding test expectations and the overlapping suite setup issue were corrected; final runs above pass.
+
+Known limits: GET is an unlocked estimate, popular product row locks may serialize cart mutations across customers, signed-bigint overflow returns a conflict instead of an arbitrary-precision amount, and no load benchmark is claimed. Concurrency workers exercise actual authenticated HTTP kernel requests on separate processes/connections, not network HTTP transport. Checkout stock allocation, promotions, and orders remain outside this milestone. The recommended next milestone is **Milestone 4: Promotions** after cart review and confirmation of the promotion proposals.
+
+### Files created
+
+- `app/Contracts/Repositories/CartRepositoryInterface.php`
+- `app/DTOs/Cart/CartLine.php`
+- `app/DTOs/Cart/CartView.php`
+- `app/Exceptions/Domain/CartConflictException.php`
+- `app/Exceptions/Domain/CartTotalTooLargeException.php`
+- `app/Exceptions/Domain/InactiveProductException.php`
+- `app/Exceptions/Domain/InsufficientStockException.php`
+- `app/Http/Controllers/Api/CartController.php`
+- `app/Http/Requests/Cart/AddCartItemRequest.php`
+- `app/Http/Requests/Cart/UpdateCartItemRequest.php`
+- `app/Http/Resources/CartItemResource.php`
+- `app/Http/Resources/CartResource.php`
+- `app/Models/Cart.php`
+- `app/Models/CartItem.php`
+- `app/Policies/CartPolicy.php`
+- `app/Repositories/Eloquent/EloquentCartRepository.php`
+- `app/Services/Cart/CartService.php`
+- `database/factories/CartFactory.php`
+- `database/factories/CartItemFactory.php`
+- `database/migrations/2026_10_06_135748_create_carts_table.php`
+- `database/migrations/2026_10_06_135749_create_cart_items_table.php`
+- `tests/Feature/Http/Controllers/Api/CartControllerTest.php`
+- `tests/Feature/Models/CartTest.php`
+- `tests/Feature/Policies/CartPolicyTest.php`
+- `tests/Feature/Services/Cart/CartConcurrencyTest.php`
+- `tests/Feature/Services/Cart/CartServiceTest.php`
+- `tests/Fixtures/cart-request.php`
+
+### Existing files modified
+
+- `README.md`
+- `app/Contracts/Repositories/ProductRepositoryInterface.php`
+- `app/Models/Product.php`
+- `app/Models/User.php`
+- `app/Providers/AppServiceProvider.php`
+- `app/Repositories/Eloquent/EloquentProductRepository.php`
+- `bootstrap/app.php`
+- `docs/01-business-discovery.md`
+- `docs/02-requirements.md`
+- `docs/03-business-processes.md`
+- `docs/04-mvp-scope.md`
+- `docs/05-architecture.md`
+- `docs/06-database-design.md`
+- `docs/07-api-contracts.md`
+- `docs/08-business-rules.md`
+- `docs/09-testing-strategy.md`
+- `docs/10-implementation-roadmap.md`
+- `routes/api.php`
+
+## Milestone 4 executed verification — October 6, 2026
+
+Preflight used the existing Compose API/PostgreSQL services. PHP is 8.5.11, Laravel 13.34.0, Sanctum 4.3.3, Pest 4.7.8, PHPUnit 12.5.33, and Pint 1.32.1, confirmed from the installed runtime/dependencies. The last commits were `f84fefb` (catalogue) and `4d10dfc` (authentication). Existing uncommitted cart code and documentation were preserved; there is no `.ai/rules` directory. A pre-edit snapshot outside the repository was used to distinguish this milestone's edits from earlier work.
+
+All database tests ran inside Docker against guarded `ecommerce_order_api_test` at Compose host `postgres`. No suite invocations overlapped during final verification; `postgres-local` was never modified.
+
+| Check | Exact result |
+|---|---|
+| Complete PostgreSQL baseline | 271 passed; 1203 assertions; 6.08 seconds |
+| Combined focused promotion tests, excluding contention | 133 passed; 557 assertions; 3.07 seconds |
+| Complete PostgreSQL regression, including contention | 407 passed; 1819 assertions; 9.58 seconds |
+| Standalone existing cart + promotion concurrency files | 6 passed; 110 assertions; 2.32 seconds |
+| Promotion contention file by itself | 3 passed; 59 assertions; 1.24 seconds |
+| `vendor/bin/pint --dirty --format agent` | Passed; initial run corrected imports/spacing/PHPDoc; final run reported passed |
+| `composer validate --strict` | Valid; exit 0 |
+| `composer audit` | No security vulnerability advisories; exit 0 |
+| `git diff --check` | Passed |
+| Development additive migrations | All three new migrations applied, batch 4; no existing migrations reset |
+| Development schema inspection | Promotions and ledger column types, microsecond validity timestamps, unique indexes and restricted FKs verified with Artisan |
+| Route inspection | 13 API routes; authenticated promotion POST/DELETE present; no checkout/order/redemption route |
+
+Early focused tests exposed loss of timezone offsets and fractional seconds with Eloquent's default date serialization. Models now preserve offsets/microseconds, and eligibility tests reload records before checking equivalent-zone starts and the instant before expiry. An input test was corrected to use an embedded null byte because Laravel's existing TrimStrings middleware removes edge control characters. All final runs above pass; no failing check remains. No static analyzer is installed/configured, and no dependency was added.
+
+### Coverage and boundaries
+
+- Pure calculator tests cover percentage/fixed discounts, caps for both types, subtotal/final bounds, zero subtotal, fractional half-up boundaries, invalid inputs, exact integers beyond IEEE-754 precision, and PHP_INT_MAX without multiplication overflow.
+- PostgreSQL model tests cover canonical uniqueness/import rejection, allowed types, percentage bounds, fixed positivity, monetary bounds, positive/null limits, active/minimum defaults, date ordering, selected promotion FK, deletion behavior, ledger FKs, unique redemption keys, non-negative snapshots, and relationships.
+- Eligibility tests cover active/date windows (inclusive start/exclusive expiry), UTC offsets/microseconds, exact minimum boundaries, empty/unpurchasable carts, normalization, unknown codes, global/customer counts, other-customer isolation, and unlimited use.
+- API/service/repository tests cover Sanctum failures, input validation, forged ownership/money, fixed/percentage responses, replacement/repeated application/removal, rollback after persistence, safe conflicts, current multi-line totals, quantity/price/stock/status/date/usage changes, selected-code retention, zero invalid discounts, no stock or redemption side effects, exact large totals, overflow recovery by removal, eager loading, and one-query usage aggregation.
+- PromotionSeeder inserts seven missing examples repeatably and preserves existing promotions/products/customers; it creates no redemption records.
+- Three new contention tests use separate PHP processes running authenticated HTTP kernel requests and independent PostgreSQL connections. Committed fixtures and a held cart row form a barrier; both workers must appear as active PostgreSQL lock waiters before release. Cases are competing replacements, apply versus remove, and simultaneous removals. Each asserts response/persistence consistency and unchanged inventory/ledger. These tests exercise kernel requests, not network transport.
+- All old auth/catalogue/cart tests remain; only cart response expectations and constructor wiring were extended for the intentional new contract. No tests were deleted.
+
+### Implemented versus future checkout
+
+Implemented: constrained promotion/ledger schemas, selection APIs, shared integer calculator, preliminary eligibility against committed history, safe cart serialization and rollback, stale-discount suppression, and realistic factories/seeder.
+
+Not implemented/verified: checkout, orders/items, inventory allocation/restoration, successful redemption writes, real order linkage, checkout replay/idempotency enforcement, usage-limit consumption under contention, or cancellation policy. The future workflow must add a real unique order FK, persist/reuse a stable redemption key, and lock Cart → Products ascending → Promotion → Customer ledger before checking counts and inserting redemption in the same successful order/inventory/cart transaction. The promotion lock also serializes first-use customers when no usage row exists. UUID uniqueness alone is not a claim of exactly-once checkout behavior.
+
+Known trade-offs: unlocked Read Committed estimates can change immediately; selecting a promotion never reserves its remaining uses. All lines must be purchasable for any discount. Positive caps apply to fixed and percentage discounts; NULL limits/bounds are unlimited/unbounded. Invalid selections are retained until removed or eligible again. Raw imports must normalize codes. Indexed historical counts have no measured performance guarantee. Ledger history restricts customer/promotion deletion pending retention/privacy decisions. Seeded future/expired dates are not refreshed on reruns.
+
+### Files changed by this milestone
+
+Comparison against the preflight snapshot identifies **32 created files and 23 modified files**. This list excludes unchanged pre-existing cart/catalogue work still shown by Git.
+
+Created:
+
+
+- `app/Contracts/Repositories/PromotionRepositoryInterface.php`
+- `app/DTOs/Promotion/DiscountCalculationResult.php`
+- `app/DTOs/Promotion/PromotionEligibilityResult.php`
+- `app/Enums/PromotionIneligibilityReason.php`
+- `app/Enums/PromotionType.php`
+- `app/Exceptions/Domain/PromotionNotEligibleException.php`
+- `app/Http/Controllers/Api/CartPromotionController.php`
+- `app/Http/Requests/Cart/ApplyPromotionRequest.php`
+- `app/Http/Resources/PromotionResource.php`
+- `app/Models/Promotion.php`
+- `app/Models/PromotionRedemption.php`
+- `app/Repositories/Eloquent/EloquentPromotionRepository.php`
+- `app/Services/Cart/CartPricingService.php`
+- `app/Services/Cart/CartPromotionService.php`
+- `app/Services/Promotion/PromotionCalculator.php`
+- `app/Services/Promotion/PromotionService.php`
+- `database/factories/PromotionFactory.php`
+- `database/factories/PromotionRedemptionFactory.php`
+- `database/migrations/2026_10_06_142158_create_promotions_table.php`
+- `database/migrations/2026_10_06_142159_create_promotion_redemptions_table.php`
+- `database/migrations/2026_10_06_142200_add_promotion_id_to_carts_table.php`
+- `database/seeders/PromotionSeeder.php`
+- `tests/Feature/Database/Seeders/PromotionSeederTest.php`
+- `tests/Feature/Http/Controllers/Api/CartPromotionControllerTest.php`
+- `tests/Feature/Models/PromotionRedemptionTest.php`
+- `tests/Feature/Models/PromotionTest.php`
+- `tests/Feature/Repositories/Eloquent/EloquentPromotionRepositoryTest.php`
+- `tests/Feature/Services/Cart/CartPromotionConcurrencyTest.php`
+- `tests/Feature/Services/Cart/CartPromotionServiceTest.php`
+- `tests/Feature/Services/Promotion/PromotionServiceTest.php`
+- `tests/Fixtures/cart-promotion-request.php`
+- `tests/Unit/Services/Promotion/PromotionCalculatorTest.php`
+
+Modified:
+
+- `app/Contracts/Repositories/CartRepositoryInterface.php`
+- `app/DTOs/Cart/CartView.php`
+- `app/Http/Resources/CartResource.php`
+- `app/Models/Cart.php`
+- `app/Repositories/Eloquent/EloquentCartRepository.php`
+- `app/Services/Cart/CartService.php`
+- `tests/Feature/Http/Controllers/Api/CartControllerTest.php`
+- `tests/Feature/Services/Cart/CartServiceTest.php`
+- `README.md`
+- `app/Models/User.php`
+- `app/Providers/AppServiceProvider.php`
+- `bootstrap/app.php`
+- `docs/01-business-discovery.md`
+- `docs/02-requirements.md`
+- `docs/03-business-processes.md`
+- `docs/04-mvp-scope.md`
+- `docs/05-architecture.md`
+- `docs/06-database-design.md`
+- `docs/07-api-contracts.md`
+- `docs/08-business-rules.md`
+- `docs/09-testing-strategy.md`
+- `docs/10-implementation-roadmap.md`
+- `routes/api.php`
+
+### Final Git and environment state
+
+Git remains uncommitted: 18 tracked modified files and 59 untracked files (expanded paths), including the original Milestone 3 work. No files were staged, committed, or pushed. Existing product-model/repository changes, cart migrations/factories/policy/worker, authentication code, dependencies, environment configuration, and unrelated files were preserved. Three additive development migrations were applied to `ecommerce_order_api` on the project Compose database only. No sample seeder was run against development data; the explicit optional command is in README. This milestone stops at promotions/cart integration.

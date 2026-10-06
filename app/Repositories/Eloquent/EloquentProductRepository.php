@@ -52,4 +52,9 @@ class EloquentProductRepository implements ProductRepositoryInterface
     {
         return Product::query()->find($id);
     }
+
+    public function findByIdForUpdate(int $id): ?Product
+    {
+        return Product::query()->lockForUpdate()->find($id);
+    }
 }

@@ -31,7 +31,9 @@ Milestone 1 confirms public POST registration/login, authenticated POST logout, 
 - FR-C04: Update a line to a positive integer quantity.
 - FR-C05: Remove a line.
 - FR-C06: Reject a requested quantity greater than currently available stock.
-- FR-C07: Attach or remove one promotion code (proposed behavior).
+- FR-C07: Attach or remove one promotion code (implemented in Milestone 4).
+
+Milestone 3 implements FR-C01..C06. All cart endpoints require Sanctum and use owner-scoped queries; GET does not create an absent cart, POST increments a line, PATCH replaces quantity, and DELETE returns 204 without modifying inventory. Mutations validate active/current stock in CartService and lock the cart before the affected product. Unavailable lines stay visible with current-price estimates and availability feedback. First-cart creation and accumulated quantities are verified with genuinely overlapping HTTP requests on PostgreSQL. Milestone 4 implements FR-C07 through authenticated POST/DELETE `/api/cart/promotion`. See `07-api-contracts.md` for request/response/error details.
 
 ### Promotions
 
@@ -80,3 +82,5 @@ Milestone 1 confirms public POST registration/login, authenticated POST logout, 
 ## Traceability
 
 Implementation milestones and tests should cite requirement IDs in pull-request descriptions or test names where practical. Requirements whose behavior remains proposed must be confirmed before their implementation milestone.
+
+Milestone 4 implements FR-R01 and preliminary FR-R02 against committed ledger records for cart estimates. Eligibility is recomputed after prices, quantities, status, validity, or recorded usage change; invalid selections remain visible with zero discount. FR-R03, FR-R04, and checkout concurrency acceptance criteria remain unimplemented. Application/removal never creates ledger entries or changes inventory.

@@ -1,6 +1,6 @@
 # E-Commerce Order & Promotion API
 
-Production-oriented backend assessment for product discovery, customer carts, promotions, transactional checkout, inventory safety, orders, and cancellation. This repository contains the Laravel foundation, **Milestone 1: Authentication & API Foundation**, and **Milestone 2: Product Catalogue**. Cart, promotions, checkout, orders, and cancellation remain unimplemented.
+Production-oriented backend assessment for product discovery, customer carts, promotions, transactional checkout, inventory safety, orders, and cancellation. This repository contains the Laravel foundation, **Milestone 1: Authentication & API Foundation**, **Milestone 2: Product Catalogue**, **Milestone 3: Shopping Cart**, and **Milestone 4: Promotions & Discount Engine**. Checkout, orders, and cancellation remain unimplemented.
 
 ## Technology stack
 
@@ -99,12 +99,14 @@ Implemented:
 - JSON error envelopes, request IDs, password policy, and authentication rate limiting.
 - Public active-product list/detail, literal name search, minor-unit price filters, availability, allow-listed sorting, and bounded pagination.
 - Product Service/Repository, PostgreSQL integrity constraints, factory, repeatable sample seeder, and catalogue tests.
+- Authenticated owner-scoped cart reads/adds/updates/deletes, exact current-price estimates, availability feedback, PostgreSQL constraints, atomic mutations, and real concurrent HTTP request tests.
+- Normalized percentage/fixed codes, PostgreSQL integrity constraints, reusable integer calculation, ledger-based eligibility, cart promotion application/removal, fresh eligibility on estimates, factories/seeder, and independent-process contention tests.
 
 Not implemented yet:
 
-- Carts, promotions, checkout, orders, inventory deduction, and cancellation.
+- Checkout, orders, inventory deduction, and cancellation.
 
-The next recommended milestone is **Milestone 3: Cart**, after reviewing the catalogue contract. Remaining business proposals are recorded in [`docs/01-business-discovery.md`](docs/01-business-discovery.md); no checkout or order decisions were changed.
+Milestone 4 is complete; stop here for review. The next planned milestone is **Milestone 5: Checkout**, which has not started. Remaining business proposals are recorded in [`docs/01-business-discovery.md`](docs/01-business-discovery.md); no checkout or order decisions were changed.
 
 ## Product catalogue
 
@@ -184,10 +186,103 @@ Security decisions:
 
 ## API responses and errors
 
-Successes use `data`; logout uses an empty 204. All `/api` failures use JSON even without an Accept header:
+Successes use `data`; logout and cart item deletion use an empty 204. All `/api` failures use JSON even without an Accept header:
 
 ```json
 {"error":{"code":"VALIDATION_FAILED","message":"The given data was invalid.","details":{"fields":{"email":["The email field is required."]}},"request_id":"<generated-uuid>"}}
 ```
 
 Invalid credentials and missing/invalid/revoked tokens return 401 with `UNAUTHENTICATED`. Invalid credentials always use “The provided credentials are incorrect.” Validation returns 422, forbidden requests 403, missing resources 404, conflicts 409, and throttled requests 429. Unexpected failures return generic 500 `INTERNAL_ERROR` without SQL, traces, or exception details, including when local debug is enabled. Laravel still reports unexpected exceptions server-side. A generated `X-Request-ID` accompanies API responses and the matching request ID is added to log context. See [`docs/07-api-contracts.md`](docs/07-api-contracts.md).
+
+
+## Shopping cart
+
+Apply the two additive cart migrations with `docker compose exec -T api php artisan migrate --no-interaction`. Cart factories provide isolated test fixtures; no cart sample seeder is needed for private, customer-created state.
+
+All four endpoints require a Sanctum bearer token:
+
+| Method | Endpoint | Success |
+|---|---|---|
+| GET | `/api/cart` | 200 cart estimate |
+| POST | `/api/cart/items` | 201 cart, including merged additions |
+| PATCH | `/api/cart/items/{id}` | 200 cart |
+| DELETE | `/api/cart/items/{id}` | 204 empty body |
+
+```bash
+curl http://localhost:8091/api/cart -H 'Accept: application/json' -H 'Authorization: Bearer <token>'
+curl -X POST http://localhost:8091/api/cart/items \
+  -H 'Accept: application/json' -H 'Content-Type: application/json' -H 'Authorization: Bearer <token>' \
+  -d '{"product_id":1,"quantity":2}'
+curl -X PATCH http://localhost:8091/api/cart/items/1 \
+  -H 'Accept: application/json' -H 'Content-Type: application/json' -H 'Authorization: Bearer <token>' \
+  -d '{"quantity":3}'
+curl -X DELETE http://localhost:8091/api/cart/items/1 \
+  -H 'Accept: application/json' -H 'Authorization: Bearer <token>'
+```
+
+PATCH/DELETE IDs identify cart lines, not products. POST increments an existing line; PATCH replaces its quantity. Bodies require actual positive JSON integers in the signed 64-bit range; strings, floats, booleans, zero, and negatives are rejected with 422. Ownership comes from the token; extra ownership, product-reassignment, price, and total fields are ignored. Missing/non-owned items return indistinguishable 404 errors.
+
+A customer without a cart receives `{"data":{"id":null,"items":[],"subtotal":{"amount_minor":0,"currency":"USD"},"promotion":null,"promotion_eligibility":null,"estimated_discount":{"amount_minor":0,"currency":"USD"},"estimated_total":{"amount_minor":0,"currency":"USD"}}}` with no database write. Persisted empty carts retain their ID. Each line exposes `id`, nested public `product`, `quantity`, `unit_price`, `line_subtotal`, and `availability`; the cart preserves `id`, `items`, and `subtotal` and adds the promotion fields documented below. All prices and totals use the catalogue's configured currency and current server prices. See `docs/07-api-contracts.md` for full examples.
+
+Unavailable lines remain in the estimate and subtotal: `availability.is_available=false`, `reason=inactive|out_of_stock|insufficient_stock`, and `available_quantity` is current stock. Newly adding/updating inactive products returns 409 `PRODUCT_INACTIVE`; insufficient stock returns 409 `INSUFFICIENT_STOCK`. DELETE is always allowed for an owned line, including unavailable products, and never restores stock. Cart additions neither reserve nor deduct inventory: different customers can independently cart quantities whose combined total exceeds stock. Checkout must revalidate and allocate inventory later.
+
+Service-owned transactions lock Cart → the affected Product → persist item changes. PostgreSQL uniqueness plus `ON CONFLICT DO NOTHING` and a subsequent locked lookup safely creates the first cart. Locks serialize concurrent quantities; no Redis is used. Integrity/remaining lock conflicts return safe 409 `CART_CONFLICT`. Without a selected promotion, GET performs at most three cart/item/product queries with eager loading and is an unlocked estimate. Amounts exceeding signed bigint return 409 `CART_TOTAL_TOO_LARGE`, never rounded floats; failed mutations roll back. DELETE can recover a cart whose current prices overflow.
+
+Run cart tests sequentially against the dedicated test database:
+
+```bash
+docker compose exec -T api php artisan test --compact tests/Feature/Http/Controllers/Api/CartControllerTest.php tests/Feature/Models/CartTest.php tests/Feature/Policies/CartPolicyTest.php tests/Feature/Services/Cart/CartServiceTest.php tests/Feature/Services/Cart/CartConcurrencyTest.php
+```
+
+Concurrency tests use separate PHP processes with authenticated HTTP kernel requests, independent PostgreSQL connections, committed fixtures, and a database lock barrier. They assert two active lock waiters before release, then verify first-cart uniqueness, merged quantities, and stock conflicts. They use `DatabaseMigrations`, not transaction-wrapped refreshes; do not run another suite concurrently on this same test database. See `docs/09-testing-strategy.md`.
+
+## Promotions and discounts (Milestone 4)
+
+Run the three additive migrations and optionally seed only promotion examples:
+
+```bash
+docker compose exec -T api php artisan migrate --no-interaction
+docker compose exec -T api php artisan db:seed --class=PromotionSeeder --no-interaction
+```
+
+The seeder inserts missing SUMMER20, WELCOME10, SAVE15, LIMITED5, INACTIVE10, FUTURE10, and EXPIRED10 examples; it preserves existing promotions, customers, and products. SUMMER20 is 20% with a 10000-minor-unit minimum and 5000-minor-unit cap; SAVE15 is 1500 minor units; LIMITED5 is 500 minor units with global limit 5 and customer limit 1. Future/expired dates are relative to the first seed run and are not refreshed on subsequent runs.
+
+| Method | Endpoint | Success |
+|---|---|---|
+| POST | `/api/cart/promotion` | 200 updated cart estimate |
+| DELETE | `/api/cart/promotion` | 204 empty body, including repeated removal |
+
+Both require a Sanctum bearer token. Send only `code`; ownership comes from the token. Codes are trimmed and uppercased: `summer20`, ` SUMMER20 `, and `SUMMER20` resolve identically. Canonical format is 1..64 ASCII letters/digits, hyphens, or underscores, beginning with a letter/digit. Invalid input returns 422 field errors. An eligible promotion replaces the current selection; any failed application preserves it.
+
+```bash
+curl -X POST http://localhost:8091/api/cart/promotion \
+  -H 'Accept: application/json' -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <token>' -d '{"code":"SUMMER20"}'
+
+curl -X DELETE http://localhost:8091/api/cart/promotion \
+  -H 'Accept: application/json' -H 'Authorization: Bearer <token>'
+```
+
+Cart GET, item POST/PATCH, and promotion POST add `promotion`, `promotion_eligibility`, `estimated_discount`, and `estimated_total`. Without a selection, promotion/eligibility are null, discount is zero, and total equals subtotal. Invalid selections remain attached with `is_eligible=false`, a reason/message, and zero discount. Every estimate uses current prices and ledger counts. Empty carts or any inactive/out-of-stock/insufficient-stock line invalidate a selected discount; unavailable lines remain in the subtotal.
+
+Fixed values use integer minor units; percentages use basis points (2000 = 20%). Percentage discounts round half-up, apply any positive cap, and never exceed subtotal. The calculator avoids full-subtotal multiplication and remains exact through signed bigint maximum. Minimum spend uses pre-discount subtotal. UTC validity uses inclusive `starts_at` and exclusive `expires_at`; null bounds are unbounded. Null usage limits mean unlimited; non-null limits are positive.
+
+**Application is not redemption or reservation.** Inventory and usage stay unchanged. The `promotion_redemptions` ledger has restricted promotion/customer FKs, a unique UUID redemption key, discount snapshot, and redemption timestamp. No redemption endpoint, counter, order table, or fictional order reference exists. Only factory fixtures populate the ledger in this milestone. Future checkout must add a unique order FK, reuse a stable redemption key, lock Cart → Products (ascending ID) → Promotion → Customer usage, revalidate, and insert redemption in the same successful order/inventory transaction. Checkout-time limit enforcement and exactly-once workflow behavior are not implemented or verified.
+
+Promotion writes lock the owner cart in one short service transaction, with bounded retries and safe 409 conflict handling. Product estimates take no product row locks. GET is unlocked; a selected promotion uses up to five domain queries (four eager-load queries plus one aggregate for limited codes), independent of line count. See [architecture](docs/05-architecture.md), [schema](docs/06-database-design.md), [API examples](docs/07-api-contracts.md), and [executed verification](docs/09-testing-strategy.md).
+
+Run focused tests sequentially on the isolated PostgreSQL database:
+
+```bash
+docker compose exec -T api php artisan test --compact \
+  tests/Unit/Services/Promotion \
+  tests/Feature/Models/PromotionTest.php tests/Feature/Models/PromotionRedemptionTest.php \
+  tests/Feature/Services/Promotion tests/Feature/Services/Cart/CartPromotionServiceTest.php \
+  tests/Feature/Http/Controllers/Api/CartPromotionControllerTest.php \
+  tests/Feature/Repositories/Eloquent/EloquentPromotionRepositoryTest.php \
+  tests/Feature/Database/Seeders/PromotionSeederTest.php
+
+docker compose exec -T api php artisan test --compact \
+  tests/Feature/Services/Cart/CartConcurrencyTest.php \
+  tests/Feature/Services/Cart/CartPromotionConcurrencyTest.php
+```

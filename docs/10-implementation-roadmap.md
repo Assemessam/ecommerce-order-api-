@@ -29,19 +29,22 @@ Implemented: active-only public list/detail, name-only literal case-insensitive 
 
 Review gate: accept the catalogue contract and indexing plan before cart implementation. No cart, promotion, checkout, order, or stock-mutation functionality was added.
 
-## Milestone 3 — Cart
+## Milestone 3 — Cart (implemented; awaiting review)
 
 - Add cart/item schema and constraints.
-- Implement owner-scoped repositories, service rules, requests, policies, resources, and endpoints.
+- Implement owner-scoped repositories, service ownership/rules, requests, policies, resources, and endpoints.
 - Test merging, stock feedback, isolation, and empty behavior.
 
-Review gate: confirm non-reservation semantics.
+Implemented: four Sanctum endpoints, one cart/customer, unique positive-quantity lines, read-only empty GET, additive/replacement quantities, current-price integer estimates, unavailable-line feedback, Cart → Product locking, safe first-cart creation, atomic failure handling, and independent PostgreSQL HTTP concurrency tests. No inventory reservations or stock changes. Verification is recorded in `09-testing-strategy.md`.
 
-## Milestone 4 — Promotions
+Review gate: accept cart contract, non-reservation semantics, and contention evidence before promotions.
 
-- Confirm normalization, rounding, stacking, validity bounds, and cancellation usage policy.
-- Add promotion/usage schema, enums, eligibility/calculation service, repositories, factories, and tests.
-- Implement provisional cart attachment/removal if approved.
+## Milestone 4 — Promotions (implemented; stop after verification)
+
+- Implement trimmed uppercase codes, integer basis points/minor units, half-up rounding, inclusive start/exclusive expiry, and no stacking.
+- Add constrained promotion schema, prepared redemption ledger, enums, DTOs, services/repositories, factories/seeder, and tests.
+- Implement authenticated POST/DELETE attachment/removal, live estimate eligibility, rollback, and real concurrent selection requests.
+- Leave redemption writes, order linkage, and checkout consumption/concurrency for Milestone 5. Cancellation usage policy remains unresolved.
 
 Review gate: promotion arithmetic and limits accepted before checkout integration.
 
@@ -81,4 +84,4 @@ Review gate: inventory restores exactly once.
 
 ## Next recommended milestone
 
-After catalogue review, implement **Milestone 3: Cart**. Keep cart, promotions, checkout, orders, and cancellation behind their separate review gates.
+Milestone 4 is implemented and stops here. After promotion review, the next planned milestone is **Milestone 5: Checkout**: real order FK, stable replay contract, atomic redemption under the promotion lock, inventory allocation, snapshots, and actual consumption contention/rollback tests. Do not start it as part of this milestone.

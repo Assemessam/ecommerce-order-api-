@@ -1,7 +1,13 @@
 <?php
 
+use App\Enums\PromotionIneligibilityReason;
+use App\Exceptions\Domain\CartConflictException;
+use App\Exceptions\Domain\CartTotalTooLargeException;
 use App\Exceptions\Domain\EmailAlreadyRegisteredException;
+use App\Exceptions\Domain\InactiveProductException;
+use App\Exceptions\Domain\InsufficientStockException;
 use App\Exceptions\Domain\InvalidCredentialsException;
+use App\Exceptions\Domain\PromotionNotEligibleException;
 use App\Http\Middleware\ApiRequestContext;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -32,8 +38,20 @@ return Application::configure(basePath: dirname(__DIR__))
             }
 
             $status = match (true) {
+                $exception instanceof PromotionNotEligibleException => match ($exception->reason) {
+                    PromotionIneligibilityReason::Unknown => 404,
+                    PromotionIneligibilityReason::EmptyCart,
+                    PromotionIneligibilityReason::InvalidCartState,
+                    PromotionIneligibilityReason::GlobalLimitReached,
+                    PromotionIneligibilityReason::CustomerLimitReached => 409,
+                    default => 422,
+                },
                 $exception instanceof InvalidCredentialsException => 401,
                 $exception instanceof EmailAlreadyRegisteredException => 422,
+                $exception instanceof InsufficientStockException,
+                $exception instanceof InactiveProductException,
+                $exception instanceof CartConflictException,
+                $exception instanceof CartTotalTooLargeException => 409,
                 default => $response->getStatusCode(),
             };
 
@@ -52,6 +70,22 @@ return Application::configure(basePath: dirname(__DIR__))
             };
 
             $error = ['code' => $code, 'message' => $message];
+
+            if ($exception instanceof PromotionNotEligibleException) {
+                $error = ['code' => $exception->reason->value, 'message' => $exception->reason->message()];
+            } elseif ($exception instanceof InsufficientStockException) {
+                $error = [
+                    'code' => 'INSUFFICIENT_STOCK',
+                    'message' => 'The requested quantity is no longer available.',
+                    'details' => ['product_id' => $exception->productId, 'available' => $exception->available],
+                ];
+            } elseif ($exception instanceof InactiveProductException) {
+                $error = ['code' => 'PRODUCT_INACTIVE', 'message' => 'The product is no longer active.'];
+            } elseif ($exception instanceof CartConflictException) {
+                $error = ['code' => 'CART_CONFLICT', 'message' => 'The cart could not be modified. Refresh the cart and try again.'];
+            } elseif ($exception instanceof CartTotalTooLargeException) {
+                $error = ['code' => 'CART_TOTAL_TOO_LARGE', 'message' => 'The cart amount exceeds the supported integer range.'];
+            }
 
             if ($exception instanceof ValidationException) {
                 $error['details']['fields'] = $exception->errors();

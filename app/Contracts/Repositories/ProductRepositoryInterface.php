@@ -13,4 +13,6 @@ interface ProductRepositoryInterface
     public function paginate(ProductQuery $query, ProductStatus $status): LengthAwarePaginator;
 
     public function findById(int $id): ?Product;
+
+    public function findByIdForUpdate(int $id): ?Product;
 }

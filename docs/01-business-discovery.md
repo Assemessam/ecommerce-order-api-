@@ -40,14 +40,14 @@ These are design proposals, not silently invented requirements.
 
 1. **Currency:** one deployment currency, configured as `USD`; mixed-currency carts are out of scope. Implication: amounts can be integer minor units without foreign-exchange logic.
 2. **Identifiers:** PostgreSQL `bigint` identity keys. Implication: simple Eloquent integration; public opaque identifiers can be introduced later if enumeration risk matters.
-3. **Cart reservation:** adding an item does not reserve stock. Implication: checkout can still fail if another customer buys the remaining stock.
-4. **One active cart:** each customer has one cart. Implication: no saved/multiple-cart UI semantics.
-5. **Price changes:** current product prices are authoritative at checkout. Implication: a cart display is an estimate and may change before purchase.
+3. **Cart reservation (confirmed in Milestone 3):** adding an item does not reserve stock. Implication: checkout can still fail if another customer buys the remaining stock.
+4. **One active cart (confirmed in Milestone 3):** each customer has one cart. Implication: no saved/multiple-cart UI semantics.
+5. **Price changes (cart estimates confirmed in Milestone 3; checkout remains planned):** current product prices are authoritative at checkout. Implication: a cart display is an estimate and may change before purchase.
 6. **Order lifecycle:** `pending`, `confirmed`, `processing`, `shipped`, `completed`, `cancelled`; customers may cancel only `pending` or `confirmed`. This requires stakeholder confirmation before order implementation.
 7. **Payment:** no gateway or payment state is included in the assessment. Checkout creates an order immediately when validation succeeds.
-8. **Promotion stacking:** one promotion per cart/order. Implication: discount calculation and lock ordering remain deterministic.
+8. **Promotion stacking (confirmed in Milestone 4 for carts):** one promotion per cart/order. Implication: discount calculation and lock ordering remain deterministic.
 9. **Tax and shipping:** excluded because neither was specified. Implication: `total = subtotal - discount` in the MVP.
-10. **Promotion application:** a customer explicitly attaches/removes a code on the cart; final eligibility is always revalidated at checkout.
+10. **Promotion application (confirmed in Milestone 4):** a customer explicitly attaches/removes a code on the cart; final eligibility is always revalidated at checkout.
 11. **Authentication (confirmed in Milestone 1):** public email/password registration and login issue Sanctum bearer tokens; POST logout revokes the current token; GET me returns the customer profile. Registration and login are rate limited. See the implemented contract in `07-api-contracts.md`.
 12. **Order cancellation response:** repeated cancellation of an already-cancelled order returns the existing cancelled order successfully, while no inventory is restored twice.
 
@@ -55,8 +55,8 @@ These are design proposals, not silently invented requirements.
 
 - Confirm currency and whether taxes, shipping, or inclusive pricing must be supported.
 - Confirm order statuses and exactly which statuses customers may cancel.
-- Confirm whether a coupon is consumed on order creation and whether cancellation releases that usage. The proposal is **do not release usage**, preserving auditability and preventing reuse abuse.
-- Confirm case sensitivity and normalization rules for SKUs and promotion codes. The proposal is trim and uppercase promotion codes, with case-insensitive uniqueness.
+- Application never consumes usage; Milestone 4 confirms redemption only at successful checkout. Confirm whether cancellation releases usage. The proposal is **do not release usage**, preserving auditability and preventing reuse abuse.
+- SKU normalization was confirmed in Milestone 2; Milestone 4 confirms trimmed uppercase promotion codes and canonical uniqueness enforced by PostgreSQL.
 - Milestone 2 confirms that inactive products are hidden from both public list and direct-ID details (404). Active zero-stock products remain visible unless availability is filtered.
 - Confirm retention, privacy, and customer-account deletion requirements.
 
@@ -66,3 +66,5 @@ These are design proposals, not silently invented requirements.
 - Every order total is reproducible from stored order-item and discount snapshots.
 - Cross-customer resource access is rejected without leaking existence.
 - Foundation and business milestones pass automated checks from a clean setup.
+
+Milestone 4 approves basis-point percentages, integer minor units, half-up rounding, inclusive start/exclusive expiry, ledger eligibility checks, and cart promotion APIs. Checkout, order linking, redemption writes, and concurrent consumption remain future work; cancellation policy remains open.

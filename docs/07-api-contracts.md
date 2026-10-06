@@ -132,7 +132,7 @@ Invalid queries return 422 `VALIDATION_FAILED`, e.g. reversed ranges:
 
 Scope discrepancy: original FR-P03 includes SKU/description search; the explicit Milestone 2 request implements name search only and preserves that broader requirement for later review. The approved `price_minor` schema is retained instead of adding a literal `price` database column.
 
-### Cart
+### Cart (implemented in Milestone 3)
 
 | Method/path | Body | Success |
 |---|---|---|
@@ -140,10 +140,67 @@ Scope discrepancy: original FR-P03 includes SKU/description search; the explicit
 | `POST /api/cart/items` | `product_id`, `quantity` | `201` cart |
 | `PATCH /api/cart/items/{id}` | `quantity` | `200` cart |
 | `DELETE /api/cart/items/{id}` | none | `204` |
-| `PUT /api/cart/promotion` | `code` | `200` cart estimate (proposed) |
-| `DELETE /api/cart/promotion` | none | `204` (proposed) |
+| `POST /api/cart/promotion` | `code` | `200` updated cart estimate (Milestone 4) |
+| `DELETE /api/cart/promotion` | none | `204` empty body, idempotent (Milestone 4) |
 
-Cart line `{id}` is always resolved inside the authenticated customer's cart scope.
+Cart line `{id}` is resolved inside the authenticated customer's cart scope, never by product ID. All six endpoints require bearer authentication. Promotion POST supersedes the earlier PUT proposal.
+
+POST requires `product_id` and `quantity`; PATCH requires `quantity`. Both use actual positive JSON integer values up to `9223372036854775807` (`integer:strict`): strings, floats, booleans, arrays, missing/null input, zero, negatives, and overflow return 422 `VALIDATION_FAILED` with field errors. A valid numeric ID for a missing product returns 404. Extra request keys are ignored, including `user_id`, `cart_id`, client prices/totals, and PATCH product reassignment; identity always comes from the authenticated customer.
+
+POST adds the requested amount to the existing quantity, returning 201 for both new and merged lines. PATCH replaces it, returning 200. Quantity zero cannot remove a line. DELETE returns 204 with no body; deleting a missing/already-deleted/non-owned line returns 404. Missing, malformed, overflowing, and inaccessible line IDs all use the existing `RESOURCE_NOT_FOUND` envelope. Removing the final line retains the persisted cart ID.
+
+Empty response for a customer without a persisted cart (GET performs no writes):
+
+```json
+{"data":{"id":null,"items":[],"subtotal":{"amount_minor":0,"currency":"USD"},"promotion":null,"promotion_eligibility":null,"estimated_discount":{"amount_minor":0,"currency":"USD"},"estimated_total":{"amount_minor":0,"currency":"USD"}}}
+```
+
+GET, POST, and PATCH use the same cart resource. Example with current price 1899 and quantity 2:
+
+```json
+{
+  "data": {
+    "id": 1,
+    "items": [{
+      "id": 7,
+      "product": {
+        "id": 1,
+        "name": "Insulated Travel Mug",
+        "sku": "DEMO-MUG",
+        "description": "Stainless steel mug for daily travel.",
+        "price": {"amount_minor":1899,"currency":"USD"},
+        "stock_quantity": 5,
+        "status": "active",
+        "created_at": "2026-10-06T12:00:00.000000Z",
+        "updated_at": "2026-10-06T12:00:00.000000Z"
+      },
+      "quantity": 2,
+      "unit_price": {"amount_minor":1899,"currency":"USD"},
+      "line_subtotal": {"amount_minor":3798,"currency":"USD"},
+      "availability": {"is_available":true,"reason":null,"available_quantity":5}
+    }],
+    "subtotal": {"amount_minor":3798,"currency":"USD"},
+    "promotion": null,
+    "promotion_eligibility": null,
+    "estimated_discount": {"amount_minor":0,"currency":"USD"},
+    "estimated_total": {"amount_minor":3798,"currency":"USD"}
+  }
+}
+```
+
+The top-level allow-list is `id`, `items`, `subtotal`, `promotion`, `promotion_eligibility`, `estimated_discount`, `estimated_total`; lines expose exactly `id`, `product`, `quantity`, `unit_price`, `line_subtotal`, `availability`. Products use the catalogue's public fields. No owner/cart foreign keys, credentials, token records, internal database fields, usage records/counters, or price snapshots are exposed. Lines are ordered by ascending cart item ID. Money uses `config('catalogue.currency')`; updated product prices immediately affect estimates.
+
+Unavailable items remain present, with their requested quantities and current-price subtotals included. Availability reason precedence is `inactive`, then `out_of_stock` (zero), then `insufficient_stock` (positive stock below quantity), else null with `is_available=true`. `available_quantity` reports stock even for inactive products. Owned cart product details intentionally include inactive products already present; public catalogue visibility is unchanged. Nothing is silently removed.
+
+Mutations revalidate the affected product under lock: inactive returns 409 `PRODUCT_INACTIVE`; insufficient stock returns 409 `INSUFFICIENT_STOCK`, e.g.:
+
+```json
+{"error":{"code":"INSUFFICIENT_STOCK","message":"The requested quantity is no longer available.","details":{"product_id":1,"available":2},"request_id":"<generated-uuid>"}}
+```
+
+Other cart 409 codes are `CART_CONFLICT` for integrity/remaining lock conflicts and `CART_TOTAL_TOO_LARGE` if a line or cart amount exceeds signed bigint. Overflow returns no rounded total; failed POST/PATCH operations roll back. Current-price overflow can also make GET return 409; owned DELETE remains available to recover. SQL/stack traces remain private even in debug mode. Missing/invalid tokens return 401. All responses retain existing request IDs and no-store headers.
+
+Adding/removing does not change inventory or reserve stock. Quantity checks concern only this customer's line; checkout must independently revalidate and allocate inventory. Cart GET is an unlocked estimate, not a guarantee or historical snapshot.
 
 ### Checkout
 
@@ -170,21 +227,80 @@ The server ignores/rejects client price and total fields. A formal idempotency-k
 | `403` | `FORBIDDEN` | Action is forbidden |
 | `405` | `METHOD_NOT_ALLOWED` | Method is unsupported |
 | `409` | `CONFLICT` | Generic HTTP conflict |
-| `404` | `RESOURCE_NOT_FOUND` | Missing/inactive or non-owned resource |
-| `409` | `INSUFFICIENT_STOCK` | Quantity cannot be fulfilled |
-| `409` | `EMPTY_CART` | Checkout has no items |
+| `404` | `RESOURCE_NOT_FOUND` | Missing/non-owned resource; inactive catalogue detail |
+| `409` | `INSUFFICIENT_STOCK` | Quantity cannot be fulfilled (cart implemented) |
+| `409` | `PRODUCT_INACTIVE` | Cart product is no longer active |
+| `409` | `CART_CONFLICT` | Cart integrity/remaining lock conflict |
+| `409` | `CART_TOTAL_TOO_LARGE` | Current line/cart amount exceeds signed bigint |
+| `409` | `EMPTY_CART` | Promotion application has no cart/items; checkout remains planned |
 | `409` | `INVALID_ORDER_STATUS` | Status transition/cancellation is not allowed |
-| `409` | `PROMOTION_USAGE_LIMIT_REACHED` | Global or customer limit exhausted |
 | `422` | `VALIDATION_FAILED` | Request field validation |
-| `422` | `INVALID_PROMOTION` | Missing/inactive/ineligible code |
-| `422` | `PROMOTION_EXPIRED` | Outside validity interval |
+| `404` | `PROMOTION_NOT_FOUND` | Unknown normalized code |
+| `422` | `PROMOTION_INACTIVE` | Code is inactive |
+| `422` | `PROMOTION_NOT_STARTED` | Before inclusive start |
+| `422` | `PROMOTION_EXPIRED` | At/after exclusive expiry |
+| `409` | `PROMOTION_GLOBAL_USAGE_LIMIT_REACHED` | Global ledger count exhausted |
+| `409` | `PROMOTION_CUSTOMER_USAGE_LIMIT_REACHED` | Customer ledger count exhausted |
+| `409` | `INVALID_CART_STATE` | At least one line is not purchasable |
 | `422` | `PROMOTION_MINIMUM_NOT_MET` | Subtotal below threshold |
 | `429` | `TOO_MANY_REQUESTS` | Rate limit exceeded |
 | `500` | `INTERNAL_ERROR` | Unexpected failure; details not exposed |
 | `503` | `SERVICE_UNAVAILABLE` | Optional readiness/dependency failure |
 
-Authentication/error mappings above are implemented. Commerce-specific error codes and distinctions between `409` and `422` remain proposed and must be frozen before those domain milestones; no cart, promotion, checkout, or order exception classes/endpoints exist yet. Product endpoints use the existing validation and not-found mappings.
+Authentication, catalogue, cart, and promotion mappings above are implemented. Checkout/order-specific mappings and endpoints remain planned. Product endpoints use the existing validation and not-found mappings.
 
 ## Resource outline
 
 A product exposes `id`, `name`, `sku`, `description`, money-valued `price`, `stock_quantity` (or a future availability abstraction), `status`, and timestamps. An order exposes status, currency, subtotal, discount, total, optional promotion-code snapshot, cancellation timestamp, timestamps, and item snapshots. Passwords, password hashes, internal lock/counter fields, and unrelated foreign keys are never exposed. A new token is exposed only in its registration/login issuance response.
+
+## Promotion API details (Milestone 4)
+
+POST body: `{"code":"SUMMER20"}`. Normalize trim/uppercase, then require a string of 1..64 ASCII letters/digits/underscore/hyphen beginning with letter/digit. Extra fields are ignored, including owner/cart IDs and client money. Resolve identity only from the token. Apply replaces one selected code and returns 200; repeated application neither consumes nor reserves usage. Unknown codes return 404; business failures use the table above and preserve any existing selection.
+
+DELETE returns an empty 204 for selected, unselected, or absent carts. It removes no items and changes no stock/ledger records.
+
+Example: current-price subtotal 15000, SUMMER20 value 2000 basis points, minimum 10000, cap 2500. The usual `id`/`items` fields remain present; these are the estimate fields:
+
+```json
+{
+  "subtotal": {"amount_minor":15000,"currency":"USD"},
+  "promotion": {
+    "id": 1,
+    "code": "SUMMER20",
+    "type": "percentage",
+    "percentage_basis_points": 2000,
+    "fixed_amount": null,
+    "minimum_cart_amount": {"amount_minor":10000,"currency":"USD"},
+    "maximum_discount": {"amount_minor":2500,"currency":"USD"},
+    "starts_at": null,
+    "expires_at": null
+  },
+  "promotion_eligibility": {"is_eligible":true,"reason":null,"message":null},
+  "estimated_discount": {"amount_minor":2500,"currency":"USD"},
+  "estimated_total": {"amount_minor":12500,"currency":"USD"}
+}
+```
+
+Fixed promotions use `type="fixed"`, `percentage_basis_points=null`, and money-valued `fixed_amount`. No ambiguous raw `value`, usage limit/count, customer FK, or ledger record is public. Currency labels use catalogue configuration.
+
+Without a selection, promotion/eligibility are null. With an invalid selection, GET retains its information, returns a reason/message, zero discount, and total equal to subtotal. For example:
+
+```json
+{
+  "promotion_eligibility": {
+    "is_eligible": false,
+    "reason": "PROMOTION_EXPIRED",
+    "message": "The promotion has expired."
+  },
+  "estimated_discount": {"amount_minor":0,"currency":"USD"},
+  "estimated_total": {"amount_minor":15000,"currency":"USD"}
+}
+```
+
+GET, item POST/PATCH, and promotion POST share this contract. Prices, quantities, availability, active status, validity windows, and ledger counts are evaluated afresh. Failure precedence: empty cart → invalid items → inactive → not started → expired → minimum → global usage → customer usage. An inactive/expired code therefore reports inactive. Application failure uses the same reason/message in the normal error envelope:
+
+```json
+{"error":{"code":"PROMOTION_EXPIRED","message":"The promotion has expired.","request_id":"<generated-uuid>"}}
+```
+
+All totals are estimates; future checkout must revalidate under locks and record successful redemption atomically. No checkout/order/redemption endpoint is registered.
