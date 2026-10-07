@@ -1,5 +1,6 @@
 <?php
 
+use App\DTOs\Auth\RegisterUserData;
 use App\Exceptions\Domain\EmailAlreadyRegisteredException;
 use App\Models\User;
 use App\Services\Auth\AuthService;
@@ -140,21 +141,21 @@ describe('registration', function () {
         'null byte' => ["StrongPassword123!\0", 'The password must not contain null bytes.'],
     ]);
 
-    it('accepts the minimum password length and uses a default client name', function () {
+    it('accepts the minimum password length and uses a default client name', function (array $optional) {
         $payload = registrationPayload();
         $payload['password'] = $payload['password_confirmation'] = 'ValidPass12!';
 
-        $this->postJson('/api/auth/register', $payload)->assertCreated();
+        $this->postJson('/api/auth/register', $payload + $optional)->assertCreated();
 
         $this->assertDatabaseHas('personal_access_tokens', ['name' => 'api-client']);
-    });
+    })->with(['missing client' => [[]], 'null client' => [['device_name' => null]]]);
 
     it('handles a persistence uniqueness conflict without creating another token', function () {
         $user = User::factory()->create();
         $payload = registrationPayload();
         $payload['email'] = $user->email;
 
-        expect(fn () => app(AuthService::class)->register($payload))
+        expect(fn () => app(AuthService::class)->register(RegisterUserData::fromArray($payload)))
             ->toThrow(EmailAlreadyRegisteredException::class);
 
         $this->assertDatabaseCount('users', 1);
@@ -203,6 +204,15 @@ describe('registration', function () {
 });
 
 describe('login', function () {
+    it('uses the default client name for missing or null client input', function (array $optional) {
+        $user = User::factory()->create();
+
+        $response = $this->postJson('/api/auth/login', ['email' => $user->email, 'password' => 'password'] + $optional)->assertOk();
+
+        expect(PersonalAccessToken::findToken($response->json('data.token'))->name)->toBe('api-client');
+        $this->assertDatabaseCount('personal_access_tokens', 1);
+    })->with(['missing client' => [[]], 'null client' => [['device_name' => null]]]);
+
     it('issues a usable token for valid credentials and normalizes the email', function () {
         $user = User::factory()->unverified()->create();
 

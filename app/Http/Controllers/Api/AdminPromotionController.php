@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\DTOs\Promotion\CreatePromotionData;
+use App\DTOs\Promotion\PromotionQuery;
+use App\DTOs\Promotion\UpdatePromotionData;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\PromotionQueryRequest;
 use App\Http\Requests\Admin\PromotionStoreRequest;
@@ -19,7 +22,8 @@ class AdminPromotionController extends Controller
     public function index(PromotionQueryRequest $request): AnonymousResourceCollection
     {
         $data = $request->validated();
-        $promotions = $this->promotions->listPromotions($request->user(), (int) ($data['page'] ?? 1), (int) ($data['per_page'] ?? 15), isset($data['is_active']) ? (bool) $data['is_active'] : null);
+        $query = PromotionQuery::fromArray($data);
+        $promotions = $this->promotions->listPromotions($request->user(), $query);
         $promotions->appends($data);
 
         return AdminPromotionResource::collection($promotions);
@@ -32,11 +36,15 @@ class AdminPromotionController extends Controller
 
     public function store(PromotionStoreRequest $request): JsonResponse
     {
-        return (new AdminPromotionResource($this->promotions->createPromotion($request->user(), $request->validated())))->response()->setStatusCode(201);
+        $data = CreatePromotionData::fromArray($request->validated());
+
+        return (new AdminPromotionResource($this->promotions->createPromotion($request->user(), $data)))->response()->setStatusCode(201);
     }
 
     public function update(PromotionUpdateRequest $request, string $id): AdminPromotionResource
     {
-        return new AdminPromotionResource($this->promotions->updatePromotion($request->user(), $id, $request->validated()));
+        $data = UpdatePromotionData::fromArray($request->validated());
+
+        return new AdminPromotionResource($this->promotions->updatePromotion($request->user(), $id, $data));
     }
 }

@@ -3,7 +3,9 @@
 namespace App\Services\Product;
 
 use App\Contracts\Repositories\ProductRepositoryInterface;
+use App\DTOs\Product\CreateProductData;
 use App\DTOs\Product\ProductQuery;
+use App\DTOs\Product\UpdateProductData;
 use App\Enums\ProductStatus;
 use App\Exceptions\Domain\AdministrationConflictException;
 use App\Exceptions\Domain\InventoryAdjustmentConflictException;
@@ -14,15 +16,12 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 class ProductService
 {
-    private const array EDITABLE_FIELDS = ['name', 'sku', 'description', 'price_minor', 'status'];
-
     public function __construct(private ProductRepositoryInterface $products, private ProductCatalogueCache $catalogueCache) {}
 
     /** @return LengthAwarePaginator<int, Product> */
@@ -58,25 +57,23 @@ class ProductService
             ?? throw (new ModelNotFoundException)->setModel(Product::class, [$id]);
     }
 
-    /** @param array{name: string, sku: string, price_minor: int, description?: ?string, stock_quantity?: int, status?: string} $data */
-    public function createProduct(User $actor, array $data): Product
+    public function createProduct(User $actor, CreateProductData $data): Product
     {
         Gate::forUser($actor)->authorize('create', Product::class);
 
         return $this->mutate(function () use ($data): Product {
-            $product = $this->products->create(Arr::only($data, [...self::EDITABLE_FIELDS, 'stock_quantity']));
+            $product = $this->products->create($data->toPersistenceArray());
             $this->catalogueCache->invalidateAfterCommit();
 
             return $product;
         });
     }
 
-    /** @param array{name?: string, sku?: string, price_minor?: int, description?: ?string, stock_adjustment?: int, status?: string} $data */
-    public function updateProduct(User $actor, string $id, array $data): Product
+    public function updateProduct(User $actor, string $id, UpdateProductData $data): Product
     {
         Gate::forUser($actor)->authorize('update', Product::class);
 
-        if (array_key_exists('stock_adjustment', $data)) {
+        if ($data->hasStockAdjustment()) {
             Gate::forUser($actor)->authorize('adjustInventory', Product::class);
         }
 
@@ -85,10 +82,10 @@ class ProductService
         return $this->mutate(function () use ($productId, $data): Product {
             $product = $this->products->findByIdForUpdate($productId)
                 ?? throw (new ModelNotFoundException)->setModel(Product::class, [$productId]);
-            $attributes = Arr::only($data, self::EDITABLE_FIELDS);
+            $attributes = $data->toPersistenceArray();
 
-            if (isset($data['stock_adjustment'])) {
-                $adjustment = $data['stock_adjustment'];
+            if ($data->stockAdjustment !== null) {
+                $adjustment = $data->stockAdjustment;
 
                 /** Bounds are checked before addition can become a float. The row remains locked through commit. */
                 if (($adjustment < 0 && $adjustment < -$product->stock_quantity)

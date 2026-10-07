@@ -1,6 +1,7 @@
 <?php
 
 use App\DTOs\Product\ProductQuery;
+use App\DTOs\Product\UpdateProductData;
 use App\Enums\OrderStatus;
 use App\Models\CartItem;
 use App\Models\Order;
@@ -106,19 +107,19 @@ it('allows metadata-only permission while requiring both product update and inve
     expect($product->fresh()->stock_quantity)->toBe(12);
 });
 
-it('enforces inventory permissions on direct service updates before any partial mutation', function () {
+it('enforces inventory permissions on direct service updates before any partial mutation', function (int $adjustment) {
     $user = User::factory()->create();
     $user->givePermissionTo('products.update');
     $product = Product::factory()->create(['stock_quantity' => 10]);
     $products = app(ProductService::class);
 
-    $products->updateProduct($user, (string) $product->id, ['name' => 'Direct Metadata']);
+    $products->updateProduct($user, (string) $product->id, UpdateProductData::fromArray(['name' => 'Direct Metadata']));
     expect(fn () => $products->updateProduct($user, (string) $product->id,
-        ['name' => 'Forbidden Direct Change', 'stock_adjustment' => 2]))->toThrow(AuthorizationException::class);
+        UpdateProductData::fromArray(['name' => 'Forbidden Direct Change', 'stock_adjustment' => $adjustment])))->toThrow(AuthorizationException::class);
 
     expect($product->fresh()->name)->toBe('Direct Metadata');
     expect($product->fresh()->stock_quantity)->toBe(10);
-});
+})->with(['positive adjustment' => 2, 'zero adjustment' => 0]);
 
 it('authorizes administrative read service methods when HTTP middleware is absent', function () {
     $customer = User::factory()->create(['is_admin' => true]);
@@ -158,7 +159,7 @@ it('uses current database roles despite stale eager-loaded permissions on a reus
     User::findOrFail($user->id)->removeRole('product_manager');
 
     expect(fn () => $products->getAdminProduct($user, (string) $product->id))->toThrow(AuthorizationException::class);
-    expect(fn () => $products->updateProduct($user, (string) $product->id, ['name' => 'Forbidden']))->toThrow(AuthorizationException::class);
+    expect(fn () => $products->updateProduct($user, (string) $product->id, UpdateProductData::fromArray(['name' => 'Forbidden'])))->toThrow(AuthorizationException::class);
 });
 
 it('uses current direct permissions despite stale eager-loaded permissions on a reused actor', function () {

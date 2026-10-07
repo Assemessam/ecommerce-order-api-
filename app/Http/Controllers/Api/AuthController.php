@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\DTOs\Auth\LoginData;
+use App\DTOs\Auth\RegisterUserData;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
@@ -17,7 +19,8 @@ class AuthController extends Controller
 
     public function register(RegisterRequest $request): JsonResponse
     {
-        $result = $this->auth->register($request->validated());
+        $data = RegisterUserData::fromArray($request->validated());
+        $result = $this->auth->register($data);
 
         return response()->json([
             'data' => [
@@ -30,7 +33,8 @@ class AuthController extends Controller
 
     public function login(LoginRequest $request): JsonResponse
     {
-        $result = $this->auth->login($request->validated());
+        $data = LoginData::fromArray($request->validated());
+        $result = $this->auth->login($data);
 
         return response()->json([
             'data' => [

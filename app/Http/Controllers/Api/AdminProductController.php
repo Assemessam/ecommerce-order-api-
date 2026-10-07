@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\DTOs\Product\CreateProductData;
+use App\DTOs\Product\UpdateProductData;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\ProductQueryRequest;
 use App\Http\Requests\Admin\ProductStoreRequest;
@@ -31,11 +33,15 @@ class AdminProductController extends Controller
 
     public function store(ProductStoreRequest $request): JsonResponse
     {
-        return (new ProductResource($this->products->createProduct($request->user(), $request->validated())))->response()->setStatusCode(201);
+        $data = CreateProductData::fromArray($request->validated());
+
+        return (new ProductResource($this->products->createProduct($request->user(), $data)))->response()->setStatusCode(201);
     }
 
     public function update(ProductUpdateRequest $request, string $id): ProductResource
     {
-        return new ProductResource($this->products->updateProduct($request->user(), $id, $request->validated()));
+        $data = UpdateProductData::fromArray($request->validated());
+
+        return new ProductResource($this->products->updateProduct($request->user(), $id, $data));
     }
 }

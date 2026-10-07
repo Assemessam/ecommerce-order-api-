@@ -3,6 +3,9 @@
 namespace App\Services\Promotion;
 
 use App\Contracts\Repositories\PromotionRepositoryInterface;
+use App\DTOs\Promotion\CreatePromotionData;
+use App\DTOs\Promotion\PromotionQuery;
+use App\DTOs\Promotion\UpdatePromotionData;
 use App\Enums\PromotionType;
 use App\Exceptions\Domain\AdministrationConflictException;
 use App\Exceptions\Domain\PromotionUsageLimitConflictException;
@@ -14,23 +17,20 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 class PromotionAdministrationService
 {
-    private const array EDITABLE_FIELDS = ['code', 'type', 'value', 'minimum_cart_amount_minor', 'maximum_discount_minor', 'starts_at', 'expires_at', 'global_usage_limit', 'per_customer_usage_limit', 'is_active'];
-
     public function __construct(private PromotionRepositoryInterface $promotions) {}
 
     /** @return LengthAwarePaginator<int, Promotion> */
-    public function listPromotions(User $user, int $page = 1, int $perPage = 15, ?bool $isActive = null): LengthAwarePaginator
+    public function listPromotions(User $user, PromotionQuery $query): LengthAwarePaginator
     {
         Gate::forUser($user)->authorize('viewAny', Promotion::class);
 
-        return $this->promotions->paginate($page, $perPage, $isActive);
+        return $this->promotions->paginate($query->page, $query->perPage, $query->isActive);
     }
 
     public function getPromotion(User $user, string $id): Promotion
@@ -41,22 +41,20 @@ class PromotionAdministrationService
             ?? throw (new ModelNotFoundException)->setModel(Promotion::class, [$id]);
     }
 
-    /** @param array{code: string, type: string, value: int, minimum_cart_amount_minor?: int, maximum_discount_minor?: ?int, starts_at?: ?string, expires_at?: ?string, global_usage_limit?: ?int, per_customer_usage_limit?: ?int, is_active?: bool} $data */
-    public function createPromotion(User $user, array $data): Promotion
+    public function createPromotion(User $user, CreatePromotionData $data): Promotion
     {
         Gate::forUser($user)->authorize('create', Promotion::class);
-        $attributes = Arr::only($data, self::EDITABLE_FIELDS);
+        $attributes = $data->toPersistenceArray();
         $this->validateProperties($attributes);
 
         return $this->mutate(fn (): Promotion => $this->promotions->create($attributes));
     }
 
-    /** @param array{code?: string, type?: string, value?: int, minimum_cart_amount_minor?: int, maximum_discount_minor?: ?int, starts_at?: ?string, expires_at?: ?string, global_usage_limit?: ?int, per_customer_usage_limit?: ?int, is_active?: bool} $data */
-    public function updatePromotion(User $user, string $id, array $data): Promotion
+    public function updatePromotion(User $user, string $id, UpdatePromotionData $data): Promotion
     {
         Gate::forUser($user)->authorize('update', Promotion::class);
         $promotionId = $this->promotionId($id);
-        $attributes = Arr::only($data, self::EDITABLE_FIELDS);
+        $attributes = $data->toPersistenceArray();
 
         return $this->mutate(function () use ($promotionId, $attributes): Promotion {
             $promotion = $this->promotions->findByIdForUpdate($promotionId)

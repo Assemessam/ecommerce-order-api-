@@ -99,6 +99,38 @@ describe('listing and detail', function () {
 });
 
 describe('updates', function () {
+    it('preserves omitted fields while accepting zero price and an explicit description clear', function (array $patch, ?string $description) {
+        $product = Product::factory()->create([
+            'name' => 'Retained Name', 'sku' => 'RETAINED-SKU', 'description' => 'Retained Description',
+            'price_minor' => 100, 'stock_quantity' => 5,
+        ]);
+
+        $this->withToken(User::factory()->productManager()->create()->createToken('products')->plainTextToken)
+            ->patchJson('/api/admin/products/'.$product->id, $patch)
+            ->assertOk()->assertJsonPath('data.description', $description)->assertJsonPath('data.price.amount_minor', 0)
+            ->assertJsonPath('data.name', 'Retained Name')->assertJsonPath('data.sku', 'RETAINED-SKU')
+            ->assertJsonPath('data.stock_quantity', 5)->assertJsonPath('data.status', 'active');
+
+        $this->assertDatabaseHas('products', [
+            'id' => $product->id, 'name' => 'Retained Name', 'sku' => 'RETAINED-SKU',
+            'description' => $description, 'price_minor' => 0, 'stock_quantity' => 5, 'status' => 'active',
+        ]);
+    })->with([
+        'omitted description' => [['price_minor' => 0], 'Retained Description'],
+        'explicit null description' => [['price_minor' => 0, 'description' => null], null],
+    ]);
+
+    it('accepts an empty product patch without changing saved attributes', function () {
+        $product = Product::factory()->create(['description' => 'Retained Description']);
+        $original = $product->refresh()->getAttributes();
+
+        $this->withToken(User::factory()->productManager()->create()->createToken('products')->plainTextToken)
+            ->patchJson('/api/admin/products/'.$product->id, [])
+            ->assertOk()->assertJsonPath('data.description', 'Retained Description');
+
+        expect($product->fresh()->getAttributes())->toBe($original);
+    });
+
     it('updates product properties and adjusts stock while leaving purchase snapshots unchanged', function () {
         $product = Product::factory()->create(['name' => 'Original', 'sku' => 'ORIGINAL', 'price_minor' => 1200, 'stock_quantity' => 10]);
         $item = CartItem::factory()->for($product)->create(['quantity' => 2]);

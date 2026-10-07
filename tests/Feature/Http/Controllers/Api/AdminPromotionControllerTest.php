@@ -92,6 +92,20 @@ describe('creation', function () {
 });
 
 describe('listing and detail', function () {
+    it('preserves an inactive query filter in results and pagination links', function (string $filter) {
+        Promotion::factory()->create();
+        Promotion::factory()->inactive()->count(2)->create();
+
+        $response = $this->withToken(User::factory()->administrator()->create()->createToken('admin')->plainTextToken)
+            ->getJson('/api/admin/promotions?is_active='.$filter.'&per_page=1')
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.is_active', false)
+            ->assertJsonPath('meta.total', 2)->assertJsonPath('meta.current_page', 1);
+
+        parse_str(parse_url($response->json('links.next'), PHP_URL_QUERY), $parameters);
+
+        expect($parameters)->toMatchArray(['is_active' => '0', 'per_page' => '1', 'page' => '2']);
+    })->with(['false word' => 'false', 'zero string' => '0']);
+
     it('lists inactive promotions and ledger counts with stable pagination and optional active filtering', function () {
         $active = Promotion::factory()->create();
         $inactive = Promotion::factory()->inactive()->create();
@@ -114,6 +128,36 @@ describe('listing and detail', function () {
 });
 
 describe('updates', function () {
+    it('preserves omitted promotion fields while accepting zero minimum and false active status', function () {
+        $promotion = Promotion::factory()->future()->limited(5, 2)->create([
+            'minimum_cart_amount_minor' => 1000, 'maximum_discount_minor' => 500,
+        ]);
+        $original = $promotion->refresh()->getAttributes();
+
+        $this->withToken(User::factory()->administrator()->create()->createToken('admin')->plainTextToken)
+            ->patchJson('/api/admin/promotions/'.$promotion->id, ['minimum_cart_amount_minor' => 0, 'is_active' => false])
+            ->assertOk()->assertJsonPath('data.minimum_cart_amount_minor', 0)->assertJsonPath('data.is_active', false)
+            ->assertJsonPath('data.maximum_discount_minor', 500)->assertJsonPath('data.global_usage_limit', 5)
+            ->assertJsonPath('data.per_customer_usage_limit', 2);
+
+        expect($promotion->fresh()->getAttributes())->toBe(array_replace($original, [
+            'minimum_cart_amount_minor' => 0, 'is_active' => false,
+        ]));
+    });
+
+    it('accepts an empty promotion patch while retaining saved attributes and usage', function () {
+        $promotion = Promotion::factory()->future()->limited()->create();
+        PromotionRedemption::factory()->for($promotion)->create();
+        $original = $promotion->refresh()->getAttributes();
+
+        $this->withToken(User::factory()->administrator()->create()->createToken('admin')->plainTextToken)
+            ->patchJson('/api/admin/promotions/'.$promotion->id, [])
+            ->assertOk()->assertJsonPath('data.redemptions_count', 1);
+
+        expect($promotion->fresh()->getAttributes())->toBe($original);
+        $this->assertDatabaseCount('promotion_redemptions', 1);
+    });
+
     it('changes future promotion inputs while preserving the order and its redemption', function () {
         $promotion = Promotion::factory()->create(['code' => 'ORIGINAL', 'value' => 2000]);
         $item = CartItem::factory()->for(Product::factory()->create(['price_minor' => 10000]))->create();

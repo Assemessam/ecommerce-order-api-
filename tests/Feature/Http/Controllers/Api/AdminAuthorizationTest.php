@@ -1,5 +1,7 @@
 <?php
 
+use App\DTOs\Product\CreateProductData;
+use App\DTOs\Promotion\CreatePromotionData;
 use App\Models\User;
 use App\Services\Product\ProductService;
 use App\Services\Promotion\PromotionAdministrationService;
@@ -93,8 +95,9 @@ it('returns 401 when an administrator has only a web session', function () {
 
 it('authorizes service mutations even when called without HTTP middleware', function (string $service, string $method, array $data) {
     $customer = User::factory()->create();
+    $command = $service === ProductService::class ? CreateProductData::fromArray($data) : CreatePromotionData::fromArray($data);
 
-    expect(fn () => app($service)->$method($customer, $data))->toThrow(AuthorizationException::class);
+    expect(fn () => app($service)->$method($customer, $command))->toThrow(AuthorizationException::class);
     $this->assertDatabaseCount('products', 0);
     $this->assertDatabaseCount('promotions', 0);
 })->with([
