@@ -1,8 +1,8 @@
 <?php
 
-use App\Http\Middleware\ThrottleApiRequests;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\Request;
+use Tests\Fixtures\ObservedThrottleRequests;
 
 require __DIR__.'/../../vendor/autoload.php';
 $app = require __DIR__.'/../../bootstrap/app.php';
@@ -19,23 +19,6 @@ if (! $app->environment('testing') || config('database.connections.pgsql.databas
 
 $input = json_decode(trim(fgets(STDIN)), true, flags: JSON_THROW_ON_ERROR);
 config($input['config'] ?? []);
-
-class ObservedThrottleRequests extends ThrottleApiRequests
-{
-    protected function tooManyAttempts($key, $maxAttempts, $decaySeconds): bool
-    {
-        $denied = parent::tooManyAttempts($key, $maxAttempts, $decaySeconds);
-        echo json_encode(['admission' => true, 'pid' => getmypid(),
-            'redis_client_id' => $this->getRedisConnection()->client()->rawCommand('CLIENT', 'ID')], JSON_THROW_ON_ERROR).PHP_EOL;
-        flush();
-        stream_set_timeout(STDIN, 10);
-        if (trim((string) fgets(STDIN)) !== 'release') {
-            throw new RuntimeException('Admission barrier was not released.');
-        }
-
-        return $denied;
-    }
-}
 
 $app['router']->aliasMiddleware('throttle', ObservedThrottleRequests::class);
 
