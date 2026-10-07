@@ -127,10 +127,10 @@ function simultaneousAdminRequests(array $requests, Model $barrier, int $firstIn
 it('preserves both an admin stock addition and checkout deduction under actual contention', function (int $firstIndex) {
     $product = Product::factory()->create(['stock_quantity' => 5]);
     $item = CartItem::factory()->for($product)->create(['quantity' => 4]);
-    $administrator = User::factory()->administrator()->create();
+    $productManager = User::factory()->productManager()->create();
 
     $results = simultaneousAdminRequests([
-        ['user' => $administrator, 'method' => 'PATCH', 'path' => '/api/admin/products/'.$product->id, 'body' => ['stock_adjustment' => 3]],
+        ['user' => $productManager, 'method' => 'PATCH', 'path' => '/api/admin/products/'.$product->id, 'body' => ['stock_adjustment' => 3]],
         ['user' => $item->cart->user, 'method' => 'POST', 'path' => '/api/checkout', 'body' => []],
     ], $product, $firstIndex);
 
@@ -149,7 +149,7 @@ it('rejects the losing stock removal or checkout without a negative quantity or 
     $item = CartItem::factory()->for($product)->create(['quantity' => 4]);
 
     $results = simultaneousAdminRequests([
-        ['user' => User::factory()->administrator()->create(), 'method' => 'PATCH', 'path' => '/api/admin/products/'.$product->id, 'body' => ['stock_adjustment' => -3]],
+        ['user' => User::factory()->productManager()->create(), 'method' => 'PATCH', 'path' => '/api/admin/products/'.$product->id, 'body' => ['stock_adjustment' => -3]],
         ['user' => $item->cart->user, 'method' => 'POST', 'path' => '/api/checkout', 'body' => []],
     ], $product, $firstIndex);
 
@@ -176,7 +176,7 @@ it('preserves both a stock adjustment and order cancellation restoration under c
     $order = Order::query()->sole();
 
     $results = simultaneousAdminRequests([
-        ['user' => User::factory()->administrator()->create(), 'method' => 'PATCH', 'path' => '/api/admin/products/'.$product->id, 'body' => ['stock_adjustment' => 3]],
+        ['user' => User::factory()->productManager()->create(), 'method' => 'PATCH', 'path' => '/api/admin/products/'.$product->id, 'body' => ['stock_adjustment' => 3]],
         ['user' => $item->cart->user, 'method' => 'POST', 'path' => '/api/orders/'.$order->id.'/cancel', 'body' => []],
     ], $product, $firstIndex);
 
@@ -200,7 +200,7 @@ it('serializes usage-limit reductions with checkout and preserves prior redempti
     $target = $isGlobal ? 1 : 2;
 
     $results = simultaneousAdminRequests([
-        ['user' => User::factory()->administrator()->create(), 'method' => 'PATCH', 'path' => '/api/admin/promotions/'.$promotion->id, 'body' => [$field => $target]],
+        ['user' => User::factory()->promotionManager()->create(), 'method' => 'PATCH', 'path' => '/api/admin/promotions/'.$promotion->id, 'body' => [$field => $target]],
         ['user' => $item->cart->user, 'method' => 'POST', 'path' => '/api/checkout', 'body' => []],
     ], $promotion, $firstIndex);
 
@@ -237,7 +237,7 @@ it('snapshots either the complete old or complete new discount during concurrent
     $item->cart->promotion()->associate($promotion)->save();
 
     $results = simultaneousAdminRequests([
-        ['user' => User::factory()->administrator()->create(), 'method' => 'PATCH', 'path' => '/api/admin/promotions/'.$promotion->id, 'body' => ['type' => 'fixed', 'value' => 500]],
+        ['user' => User::factory()->promotionManager()->create(), 'method' => 'PATCH', 'path' => '/api/admin/promotions/'.$promotion->id, 'body' => ['type' => 'fixed', 'value' => 500]],
         ['user' => $item->cart->user, 'method' => 'POST', 'path' => '/api/checkout', 'body' => []],
     ], $promotion, $firstIndex);
 
@@ -250,13 +250,13 @@ it('snapshots either the complete old or complete new discount during concurrent
     expect($promotion->fresh()->value)->toBe(500);
 })->with(['admin queued first' => 0, 'checkout queued first' => 1]);
 
-it('retains both administrators distinct partial product edits under contention', function () {
+it('retains both product managers distinct partial product edits under contention', function () {
     $product = Product::factory()->create(['name' => 'Original', 'price_minor' => 100]);
-    $administrator = User::factory()->administrator()->create();
+    $productManager = User::factory()->productManager()->create();
 
     $results = simultaneousAdminRequests([
-        ['user' => $administrator, 'method' => 'PATCH', 'path' => '/api/admin/products/'.$product->id, 'body' => ['name' => 'Updated']],
-        ['user' => $administrator, 'method' => 'PATCH', 'path' => '/api/admin/products/'.$product->id, 'body' => ['price_minor' => 200]],
+        ['user' => $productManager, 'method' => 'PATCH', 'path' => '/api/admin/products/'.$product->id, 'body' => ['name' => 'Updated']],
+        ['user' => $productManager, 'method' => 'PATCH', 'path' => '/api/admin/products/'.$product->id, 'body' => ['price_minor' => 200]],
     ], $product);
 
     expect(array_column($results, 'status'))->toBe([200, 200]);
@@ -271,7 +271,7 @@ it('returns 409 for exhausted transaction retries without leaking SQL or retaini
         DB::statement("DO 'BEGIN RAISE EXCEPTION ''deadlock detected (injected)'' USING ERRCODE = ''40P01''; END'");
     });
 
-    $this->withToken(User::factory()->administrator()->create()->createToken('admin')->plainTextToken)
+    $this->withToken(User::factory()->productManager()->create()->createToken('admin')->plainTextToken)
         ->patchJson('/api/admin/products/'.$product->id, ['stock_adjustment' => 2])
         ->assertConflict()->assertJsonPath('error.code', 'ADMINISTRATION_CONFLICT');
 
@@ -290,7 +290,7 @@ it('retries product stock adjustment without applying the delta more than once',
         }
     });
 
-    $this->withToken(User::factory()->administrator()->create()->createToken('admin')->plainTextToken)
+    $this->withToken(User::factory()->productManager()->create()->createToken('admin')->plainTextToken)
         ->patchJson('/api/admin/products/'.$product->id, ['stock_adjustment' => 2])
         ->assertOk()->assertJsonPath('data.stock_quantity', 7);
 
@@ -307,7 +307,7 @@ it('rolls back promotion edits and retains usage after exhausted transaction ret
         DB::statement("DO 'BEGIN RAISE EXCEPTION ''deadlock detected (injected)'' USING ERRCODE = ''40P01''; END'");
     });
 
-    $this->withToken(User::factory()->administrator()->create()->createToken('admin')->plainTextToken)
+    $this->withToken(User::factory()->promotionManager()->create()->createToken('admin')->plainTextToken)
         ->patchJson('/api/admin/promotions/'.$promotion->id, ['is_active' => false])
         ->assertConflict()->assertJsonPath('error.code', 'ADMINISTRATION_CONFLICT');
 

@@ -14,13 +14,40 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
+use Spatie\Permission\Contracts\Permission;
+use Spatie\Permission\Traits\HasRoles;
 
 #[Fillable(['name', 'email', 'password'])]
-#[Hidden(['password', 'remember_token', 'is_admin'])]
+#[Hidden(['password', 'remember_token', 'is_admin', 'roles', 'permissions'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, HasRoles, Notifiable {
+        HasRoles::hasPermissionTo as private hasLoadedPermissionTo;
+    }
+
+    protected string $guard_name = 'web';
+
+    /**
+     * Re-evaluate assignments even when a direct service caller retains a loaded user.
+     *
+     * @param  string|int|\BackedEnum|Permission  $permission
+     */
+    public function hasPermissionTo(mixed $permission, ?string $guardName = null): bool
+    {
+        if (! $this->exists) {
+            return false;
+        }
+
+        $this->unsetRelation('roles')->unsetRelation('permissions');
+
+        return $this->hasLoadedPermissionTo($permission, $guardName);
+    }
+
+    protected function getDefaultGuardName(): string
+    {
+        return $this->guard_name;
+    }
 
     /** @return HasMany<Order, $this> */
     public function orders(): HasMany

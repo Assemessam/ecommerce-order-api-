@@ -1,5 +1,7 @@
 # Bonus Milestone 7B — Redis Product Catalogue Caching
 
+Historical milestone record: later product mutations moved into the unified ProductService, preserving this report's cache invalidation/transaction behavior. Administration now uses Spatie permissions. Earlier class names, changed-path inventory, and verification counts below remain historical; current architecture and regression evidence are in [19-product-service-rbac-refactor.md](19-product-service-rbac-refactor.md).
+
 Implemented and verified on October 6, 2026. Public product listings now use a dedicated Redis read-through cache with service-layer ownership, transaction-aware invalidation, generation-based race protection, PostgreSQL fallback, and real Redis tests. This milestone stops here. No queue/event processing, additional API rate limiting, new business features, frontend, commit, push, or deployment was performed.
 
 ## 1. Preflight and baseline

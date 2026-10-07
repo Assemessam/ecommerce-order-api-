@@ -16,7 +16,7 @@ class ApiRateLimiters
                 $policy = config('rate-limits.policies.'.$name);
                 $identity = in_array($name, ['auth-register', 'catalogue-read', 'health-read'], true)
                     ? 'ip:'.self::ipIdentity($request)
-                    : ($request->user()->is_admin ? 'admin:' : 'customer:').$request->user()->getAuthIdentifier();
+                    : 'user:'.$request->user()->getAuthIdentifier();
 
                 return ($policy['minutes'] === 60 ? Limit::perHour($policy['attempts']) : Limit::perMinute($policy['attempts']))->by($identity);
             });

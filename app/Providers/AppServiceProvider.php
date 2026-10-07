@@ -8,7 +8,9 @@ use App\Contracts\Repositories\OrderRepositoryInterface;
 use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Contracts\Repositories\PromotionRepositoryInterface;
 use App\Contracts\Repositories\UserRepositoryInterface;
+use App\Enums\InternalPermission;
 use App\Http\RateLimiting\ApiRateLimiters;
+use App\Models\User;
 use App\Repositories\Eloquent\EloquentCartRepository;
 use App\Repositories\Eloquent\EloquentOrderOutboxRepository;
 use App\Repositories\Eloquent\EloquentOrderRepository;
@@ -16,6 +18,7 @@ use App\Repositories\Eloquent\EloquentProductRepository;
 use App\Repositories\Eloquent\EloquentPromotionRepository;
 use App\Repositories\Eloquent\EloquentUserRepository;
 use App\Services\Product\ProductCatalogueCache;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -41,6 +44,10 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Password::defaults(fn (): Password => Password::min(12)->mixedCase()->numbers()->symbols());
+
+        foreach (InternalPermission::cases() as $permission) {
+            Gate::define($permission->value, fn (User $user): bool => $user->checkPermissionTo($permission->value));
+        }
 
         ApiRateLimiters::register();
     }

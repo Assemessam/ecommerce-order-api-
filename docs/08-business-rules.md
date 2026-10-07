@@ -104,21 +104,23 @@ BR-O09: optional Idempotency-Key is scoped to the authenticated customer and per
 
 Any exception rolls back all restoration and markers; unsupported/inconsistent states and database integrity/remaining concurrency conflicts use safe 409 codes. No refund/shipping action occurs. See `12-order-management.md`.
 
-## Bonus 7A administration
+## Administration — current RBAC rules
 
-- BR-ADM01: Only authenticated stored administrators may access admin product/promotion operations. Registration and mass assignment never grant this privilege; customer ownership rules remain in force for all customer routes.
+- BR-ADM01: Administrative operations require current Spatie permissions. Product Manager has product/inventory capabilities; Promotion Manager has promotion capabilities; Administrator has all seven canonical permissions. Multiple roles provide their union; customers have no internal role. Registration and mass assignment never grant roles/permissions; the retained `is_admin` flag grants no access. Customer ownership rules remain in force for every staff role.
 - BR-ADM02: Product creation accepts initial nonnegative stock. Subsequent stock management uses a nonzero signed adjustment to the locked current quantity. Underflow/overflow aborts every field in the transaction. Cart operations reserve no stock.
 - BR-ADM03: Inactive products remain visible to admins and hidden from the public catalogue; deactivation does not rewrite historical item snapshots or prevent eligible cancellation restoration.
 - BR-ADM04: Promotion edits apply to future eligibility and discount snapshots only. Existing redemption identity, amounts, timestamps and order snapshots are preserved; cancellation still consumes usage.
 - BR-ADM05: Supplied global/customer limits must be at least consumed total/largest individual customer usage under the checkout promotion lock. Equality is allowed; null means unlimited. Below-usage edits return 409 and retain all original properties/records.
-- BR-ADM06: Deactivation is the supported retirement operation. No hard-delete endpoints, reservation, cache, queue, additional throttle or RBAC framework are introduced.
-- BR-ADM07: A local-only administrator grant operates on an existing registered customer and never creates credentials. Production provisioning requires a separately reviewed operator workflow.
+- BR-ADM06: Deactivation is the supported retirement operation. No hard-delete, role-management, permission-management, or user-management HTTP endpoints are added. Current catalogue caching, outbox, queues, and named throttles retain their separate responsibilities.
+- BR-ADM07: Local-only canonical-role grants/revocations operate on existing registered users and never create/change credentials or tokens. They are idempotent. Existing tokens reflect authorization changes; production provisioning requires a separately reviewed operator workflow.
+- BR-ADM08: Product PATCH requires `products.update`; presence of `stock_adjustment` additionally requires `inventory.adjust` before validation and again at the direct-service boundary. Permission denial preserves all metadata and inventory.
+- BR-ADM09: Permission metadata uses the independent in-memory package cache; authorization reloads User assignments to avoid stale loaded relations. No universal Administrator authorization bypass is allowed.
 
 
 ## Bonus 7D HTTP infrastructure and security
 
 - BR-RL01: Each defined API endpoint uses one named policy; related routes share a budget, and sensitive writes have separate budgets from reads. Authentication uses complementary IP, account/IP and account limits.
-- BR-RL02: Limits never derive identity or privilege from submitted `user_id`, role or administrator flags. Public client IPs honor only explicitly trusted proxies; canonical hashed IP/account identities avoid raw account data in Redis.
+- BR-RL02: Every authenticated named policy uses stable `user:<id>` independent of role grants, revocations, combinations, token/IP changes, and submitted identities. Limits never derive privilege from submitted `user_id`, roles, permissions, or administrator flags. Public client IPs honor only explicitly trusted proxies; canonical hashed IP/account identities avoid raw account data in Redis.
 - BR-RL03: Throttled requests return the existing generic 429 envelope and native retry headers before business operations. Invalid input and purchase replays consume allowance. Missing authentication returns 401 before consuming a user quota; repeated authenticated forbidden attempts may be throttled before authorization.
 - BR-RL04: Checkout idempotency, inventory, promotion ledgers and outbox persistence stay PostgreSQL responsibilities. A throttle creates no business effect. Queue workers, scheduled relay/recovery and internal services have no HTTP throttle.
 - BR-RL05: Limiter connection failures return sanitized 503 without starting business operations. Development Redis eviction/restarts may reset budgets; this does not weaken database purchase guarantees. See [17-api-rate-limiting.md](17-api-rate-limiting.md).

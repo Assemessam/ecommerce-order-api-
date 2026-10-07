@@ -1,7 +1,7 @@
 <?php
 
 use App\Models\User;
-use App\Services\Product\ProductAdministrationService;
+use App\Services\Product\ProductService;
 use App\Services\Promotion\PromotionAdministrationService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -48,34 +48,42 @@ it('keeps public registration unprivileged despite forged role and administrator
     $response = $this->postJson('/api/auth/register', [
         'name' => 'Customer', 'email' => 'customer@example.test',
         'password' => 'ValidPassword123!', 'password_confirmation' => 'ValidPassword123!',
-        'is_admin' => true, 'role' => 'admin', 'permissions' => ['*'],
-    ])->assertCreated()->assertJsonMissingPath('data.user.is_admin');
+        'is_admin' => true, 'role' => 'administrator', 'roles' => ['administrator'],
+        'role_id' => 1, 'role_ids' => [1], 'permission' => 'products.create', 'permissions' => ['*'],
+    ])->assertCreated()->assertJsonMissingPath('data.user.is_admin')
+        ->assertJsonMissingPath('data.user.roles')->assertJsonMissingPath('data.user.permissions');
 
     $customer = User::query()->sole();
     expect($customer->is_admin)->toBeFalse();
+    expect($customer->roles()->count())->toBe(0);
+    expect($customer->permissions()->count())->toBe(0);
     $this->app['auth']->forgetGuards();
     $this->withToken($response->json('data.token'))->getJson('/api/admin/products')->assertForbidden();
 });
 
-it('ignores administrator status during customer mass assignment', function () {
+it('ignores administrator roles and permissions during customer mass assignment', function () {
     $customer = User::factory()->create();
 
-    $customer->fill(['name' => 'Updated Customer', 'is_admin' => true])->save();
+    $customer->fill(['name' => 'Updated Customer', 'is_admin' => true, 'role' => 'administrator',
+        'roles' => ['administrator'], 'role_id' => 1, 'role_ids' => [1],
+        'permission' => 'products.create', 'permissions' => ['products.create']])->save();
 
     expect($customer->fresh()->is_admin)->toBeFalse();
     expect($customer->fresh()->name)->toBe('Updated Customer');
+    expect($customer->roles()->count())->toBe(0);
+    expect($customer->permissions()->count())->toBe(0);
     expect($customer->toArray())->not->toHaveKey('is_admin');
 });
 
-it('uses current server administrator status even for an existing wildcard token', function () {
-    $administrator = User::factory()->administrator()->create();
+it('uses current permissions even when a revoked administrator retains the legacy flag and wildcard token', function () {
+    $administrator = User::factory()->administrator()->create(['is_admin' => true]);
     $token = $administrator->createToken('admin')->plainTextToken;
     $this->withToken($token)->getJson('/api/admin/products')->assertOk();
-    $administrator->is_admin = false;
-    $administrator->save();
+    $administrator->removeRole('administrator');
     $this->app['auth']->forgetGuards();
 
     $this->withToken($token)->getJson('/api/admin/products')->assertForbidden();
+    expect($administrator->fresh()->is_admin)->toBeTrue();
 });
 
 it('returns 401 when an administrator has only a web session', function () {
@@ -90,6 +98,6 @@ it('authorizes service mutations even when called without HTTP middleware', func
     $this->assertDatabaseCount('products', 0);
     $this->assertDatabaseCount('promotions', 0);
 })->with([
-    [ProductAdministrationService::class, 'createProduct', ['name' => 'P', 'sku' => 'P', 'price_minor' => 0]],
+    [ProductService::class, 'createProduct', ['name' => 'P', 'sku' => 'P', 'price_minor' => 0]],
     [PromotionAdministrationService::class, 'createPromotion', ['code' => 'P', 'type' => 'fixed', 'value' => 1]],
 ]);

@@ -1,5 +1,7 @@
 # Milestone 7E — Final audit and submission preparation
 
+Historical pre-refactor review: the findings, class names, authorization model, Git state, and executed counts below record the October 6 delivery. The subsequent approved ProductService/Spatie RBAC change is documented and verified in [19-product-service-rbac-refactor.md](19-product-service-rbac-refactor.md). This record is retained rather than repurposed as evidence for the later implementation.
+
 Review date: **October 6, 2026** (Africa/Cairo). Employer deadline: **October 13, 2026**.
 
 ## 1. Executive summary

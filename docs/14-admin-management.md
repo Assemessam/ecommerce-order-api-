@@ -1,5 +1,7 @@
 # Bonus Milestone 7A — Secure Admin Product & Promotion Management
 
+Historical milestone record: the boolean authorization and separate product administration service below describe Bonus 7A as implemented on October 6. They are superseded by [19-product-service-rbac-refactor.md](19-product-service-rbac-refactor.md): current administration uses Spatie permissions and the unified ProductService. Existing test counts, class names, Git evidence, and earlier scope decisions are retained as history.
+
 Implemented and verified on October 6, 2026. This milestone adds product and promotion administration to the completed mandatory API while preserving customer authorization, pricing, checkout, cancellation, snapshots, and redemption behavior. Work stops here: Redis caching, order queues and additional rate limiting are deferred. No commits, pushes or deployments were created.
 
 ## 1. Preflight and baseline

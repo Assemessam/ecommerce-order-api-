@@ -77,7 +77,7 @@ Emails are trimmed/lowercased before validation, storage, and lookup. Registrati
 
 Registration permits 5 attempts/hour/IP. Login permits 5 attempts/minute/normalized-email-and-IP and 30 attempts/minute/IP, plus 20 attempts/minute/normalized account across IPs. Successes and failures count, and throttled responses include `Retry-After`. Duplicate emails return 422 `VALIDATION_FAILED` with `details.fields.email`, including races detected by the database constraint. Invalid credentials return 401 `UNAUTHENTICATED` with `The provided credentials are incorrect.` Missing/invalid/revoked tokens return 401 with `Unauthenticated.`
 
-Authentication uses bearer tokens only, without web session fallback. Tokens retain native Sanctum no-expiration defaults and `*` abilities for the customer role. Logout deletes only the authenticating token; other tokens remain valid. Unverified accounts may authenticate; verification and password recovery are outside Milestone 1. POST logout supersedes the foundation's DELETE proposal per the approved milestone request.
+Authentication uses bearer tokens only, without web session fallback. Issued API tokens retain native Sanctum no-expiration defaults and `*` abilities; customers have no internal role. Logout deletes only the authenticating token; other tokens remain valid. Unverified accounts may authenticate; verification and password recovery are outside Milestone 1. POST logout supersedes the foundation's DELETE proposal per the approved milestone request.
 
 ### Products (implemented in Milestone 2; public, no token required)
 
@@ -373,7 +373,20 @@ This was the Milestone 4 delivery state: totals were estimates and checkout was 
 
 ## Bonus 7A — Administrator product and promotion management
 
-All routes below require a Sanctum bearer token belonging to a user whose stored `is_admin` is true. Missing/invalid/revoked tokens receive 401; ordinary customers receive 403 before validation or resource lookup. There are no public admin-registration or DELETE endpoints. Names are `admin.products.{index,show,store,update}` and `admin.promotions.{index,show,store,update}`.
+All routes below require a Sanctum bearer token and the current Spatie permission for that action. Missing/invalid/revoked tokens receive 401; an authenticated user lacking permission receives 403 before validation or resource lookup, unless repeated attempts have exhausted the user's category quota (429). Customers have no internal role. Product Manager receives the four product/inventory permissions; Promotion Manager receives the three promotion permissions; Administrator receives all seven; both manager roles provide their union. Existing tokens reflect role changes. The retained `is_admin` flag grants no access. There are no public role-management, admin-registration, or DELETE endpoints. Route names remain `admin.products.{index,show,store,update}` and `admin.promotions.{index,show,store,update}`.
+
+| Endpoint | Required permission |
+|---|---|
+| GET `/api/admin/products` | `products.view-admin` |
+| GET `/api/admin/products/{id}` | `products.view-admin` |
+| POST `/api/admin/products` | `products.create` |
+| PATCH `/api/admin/products/{id}` | `products.update`; additionally `inventory.adjust` whenever `stock_adjustment` is present |
+| GET `/api/admin/promotions` | `promotions.view-admin` |
+| GET `/api/admin/promotions/{id}` | `promotions.view-admin` |
+| POST `/api/admin/promotions` | `promotions.create` |
+| PATCH `/api/admin/promotions/{id}` | `promotions.update` |
+
+Inventory authorization runs before validation and again in ProductService, so a denied stock adjustment cannot partially edit metadata. All staff remain subject to customer ownership policies. No request/resource shape or endpoint was added by the refactor.
 
 | Method | Path | Success |
 |---|---|---|
@@ -418,7 +431,7 @@ The admin promotion resource uses explicit editable field names (including raw v
 | Exhausted recognized database contention/integrity conflict | 409 / ADMINISTRATION_CONFLICT |
 | Unexpected failure | 500 / INTERNAL_ERROR; no SQL/details exposed |
 
-A limit equal to usage is permitted and blocks further redemption; reducing below usage is rejected atomically, including any other fields in that PATCH. Stock adjustments are additive and **not idempotent across separate requests**; don't blindly retry after an uncertain response. Transaction retries roll back earlier attempts before reapplying a delta. For provisioning and curl examples see [14-admin-management.md](14-admin-management.md); the separate Admin Postman folder uses its own token variables.
+A limit equal to usage is permitted and blocks further redemption; reducing below usage is rejected atomically, including any other fields in that PATCH. Stock adjustments are additive and **not idempotent across separate requests**; don't blindly retry after an uncertain response. Transaction retries roll back earlier attempts before reapplying a delta. Current local grant/revoke commands and permission behavior are in [19-product-service-rbac-refactor.md](19-product-service-rbac-refactor.md); [14-admin-management.md](14-admin-management.md) retains historical curl examples. The separate Admin Postman folder uses its own token variables.
 
 ## Bonus 7B — Public listing freshness
 
@@ -429,7 +442,7 @@ Listings are short-lived estimates with a configurable 45-second default cache b
 
 ## Bonus 7D rate-limit response contract
 
-Every defined `/api` route has its category's named limiter. Defaults: public catalogue/health 120/minute/IP in separate groups; cart/history/profile reads 120/minute/user; cart writes 60, promotion changes 30, checkout/cancellation 20; admin reads 120 and writes 30; logout 30. Categories are separate, while related routes within one category share a budget. The complete path/policy/env matrix is in [17-api-rate-limiting.md](17-api-rate-limiting.md).
+Every defined `/api` route has its category's named limiter. Defaults: public catalogue/health 120/minute/IP in separate groups; cart/history/profile reads 120/minute/user; cart writes 60, promotion changes 30, checkout/cancellation 20; admin reads 120 and writes 30; logout 30. Categories are separate, while related routes within one category share a budget. Every authenticated identity is stable `user:<id>` across tokens and role changes; roles/permissions are excluded from its key. The complete path/policy/env matrix is in [17-api-rate-limiting.md](17-api-rate-limiting.md).
 
 ```json
 {"error":{"code":"TOO_MANY_REQUESTS","message":"Too many requests. Please try again later.","request_id":"generated-uuid"}}

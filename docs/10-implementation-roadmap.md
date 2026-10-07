@@ -82,7 +82,9 @@ Review gate: inventory restores exactly once.
 | Host lacks PostgreSQL PDO driver | Use the checked-in app container with `pdo_pgsql` |
 | Client retries duplicate checkout | Decide idempotency-key behavior before checkout implementation |
 
-## Bonus Milestone 7A — Admin product and promotion management (implemented)
+## Bonus Milestone 7A — Admin product and promotion management (historical implementation)
+
+This entry preserves the original boolean authorization and separate administration-service milestone. The current ProductService/Spatie follow-up below supersedes those architecture choices.
 
 - Minimal guarded is_admin flag, Sanctum and class-level policies, local-only existing-account provisioning.
 - Thin admin controllers, specific Form Requests, existing resources/enums/repositories, dedicated administration services.
@@ -126,4 +128,18 @@ See [17-api-rate-limiting.md](17-api-rate-limiting.md) for implementation result
 
 ## Milestone 7E — Final audit and submission preparation
 
-`release/ecommerce-assessment-final` starts directly from the completed 7D commit and retains all previous milestones. The independent requirements review, final quality gate, isolated fresh-clone setup and HTTP smoke evidence are recorded in [18-final-submission-review.md](18-final-submission-review.md). Final review changes remain uncommitted for approval. No merge, push, deployment or submission is performed.
+This historical milestone created `release/ecommerce-assessment-final` directly from the completed 7D commit, retaining all previous milestones. The independent requirements review, quality gate, isolated fresh-clone setup and HTTP smoke evidence are recorded in [18-final-submission-review.md](18-final-submission-review.md). Its submission documentation was subsequently committed as `bb6f50f`; the approved ProductService/RBAC follow-up starts from that commit.
+
+## Approved follow-up — Unified ProductService and Spatie RBAC
+
+The follow-up starts on `feature/product-service-rbac-refactor` at `bb6f50f`, after the prior submission documentation was committed. Pre-existing Compose and structural-audit work is preserved.
+
+1. Record a complete PostgreSQL/Redis baseline before changing behavior.
+2. Install compatible stable Spatie Laravel Permission, publish only its required configuration/schema, and bootstrap three roles/seven permissions with legacy-only Administrator backfill.
+3. Switch Product/Promotion policies to permissions, preserve direct-service safeguards, and require conditional inventory authorization. Retain the old flag as non-authoritative history.
+4. Add canonical local-only grant/revoke commands and composable role factory states; protect current-token revocation and all-staff customer ownership.
+5. Make every authenticated limiter identity stable `user:<id>`.
+6. Consolidate public/admin product use cases, migrate callers/tests, verify focused behavior, then remove the former administration service.
+7. Run complete regression, seven standalone contention suites, real Redis catalogue/jobs/outbox coverage, package guard/cache verification, and quality checks; update current documentation and Postman descriptions.
+
+Implementation and executed verification are recorded in [19-product-service-rbac-refactor.md](19-product-service-rbac-refactor.md). Release review commits this change, integrates it into `release/ecommerce-assessment-final`, and reruns regression. It stops before pushing, merging to main, deployment, or submission.

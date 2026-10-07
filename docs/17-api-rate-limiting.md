@@ -1,5 +1,7 @@
 # Bonus Milestone 7D — API Rate Limiting
 
+The Git history, executed counts, and original implementation evidence in this milestone are historical. The current identity/middleware contract below includes the subsequent approved RBAC change to stable `user:<id>` keys. Its independent verification is recorded in [19-product-service-rbac-refactor.md](19-product-service-rbac-refactor.md); existing budgets, atomic admission, Redis isolation, and outage behavior are preserved.
+
 ## Git verification and Bonus 7C commit
 
 The starting branch was `feature/order-events-queues-7c`; HEAD was exactly the Redis parent `c11fee5fbe1a57ac99e627c63c518e82d5582897`. The staged inventory was empty, and all 41 modified/new paths matched the order events/outbox milestone. Review covered the actual events, PostgreSQL transactional outbox, queue job/listener, dispatch ownership, lease recovery, Redis worker configuration, duplicate processing, retries/failure hooks and the existing checkout/cancellation transaction paths. No unrelated changes, populated private environment files, generated artifacts or private secrets were staged. Supplied local Compose test credentials are development fixtures.
@@ -47,8 +49,8 @@ Related routes in each row share one allowance. Every `GET` also includes its na
 | `checkout` | POST `/api/checkout` | 20/minute | Stored user | `RATE_LIMIT_CHECKOUT_PER_MINUTE` |
 | `order-read` | GET `/api/orders`, `/api/orders/{id}` | 120/minute | Stored user | `RATE_LIMIT_ORDER_READ_PER_MINUTE` |
 | `order-cancel` | POST `/api/orders/{id}/cancel` | 20/minute | Stored user | `RATE_LIMIT_ORDER_CANCEL_PER_MINUTE` |
-| `admin-read` | GET `/api/admin/products`, `/api/admin/products/{id}`, `/api/admin/promotions`, `/api/admin/promotions/{id}` | 120/minute | Stored admin | `RATE_LIMIT_ADMIN_READ_PER_MINUTE` |
-| `admin-mutation` | POST `/api/admin/products`, `/api/admin/promotions`; PATCH either resource `/{id}` | 30/minute | Stored admin | `RATE_LIMIT_ADMIN_MUTATION_PER_MINUTE` |
+| `admin-read` | GET `/api/admin/products`, `/api/admin/products/{id}`, `/api/admin/promotions`, `/api/admin/promotions/{id}` | 120/minute | Stored user; permissions checked afterward | `RATE_LIMIT_ADMIN_READ_PER_MINUTE` |
+| `admin-mutation` | POST `/api/admin/products`, `/api/admin/promotions`; PATCH either resource `/{id}` | 30/minute | Stored user; permissions checked afterward | `RATE_LIMIT_ADMIN_MUTATION_PER_MINUTE` |
 | `account-read` | GET `/api/auth/me` | 120/minute | Stored user | `RATE_LIMIT_ACCOUNT_READ_PER_MINUTE` |
 | `account-mutation` | POST `/api/auth/logout` | 30/minute | Stored user | `RATE_LIMIT_ACCOUNT_MUTATION_PER_MINUTE` |
 
@@ -58,7 +60,9 @@ Registration's existing five-per-minute rule was deliberately tightened to five 
 
 Public policies always use `Request::ip()`, followed by IP validation and hashing of canonical `inet_pton()` bytes. Equivalent IPv6 textual representations share allowance. An invalid peer IP returns generic 400. Body identities, login tokens and arbitrary forwarding headers cannot select a different public quota.
 
-Authenticated keys use the current Sanctum user's database ID plus `customer:` or `admin:` according to its stored `is_admin` flag. Different users, roles and policy names have different identities; multiple tokens/IPs for one user share its category allowance. Public catalogue limits continue to use IP even when an Authorization header is present. Request `user_id`, role and administrator flags are never trusted.
+Every authenticated policy now uses `user:<id>` from the current Sanctum user's database ID. Different users and named policy categories have separate budgets; multiple tokens/IPs for one user share the category allowance. Role grants, revocations, combinations, and permission changes do not reset or multiply it. Neither the retained `is_admin` flag nor role/permission names/counts enter the key. Public catalogue limits continue to use IP even when an Authorization header is present. Request identities are never trusted.
+
+The initial rollout changes previously hashed `customer:<id>` / `admin:<id>` identities, so existing authenticated one-minute counters are not reused once. Coordinate application rollout to avoid mixed old/new identities within that transition window. Subsequent role changes retain the stable identity. Public/login/registration identities are unchanged; no Redis database or unrelated namespace is flushed.
 
 Login normalizes email exactly as authentication does (trim + lowercase). It derives a stable HMAC-SHA-256 using the app key, with distinct `ip:`, `account-ip:` and `account:` identities. Raw emails/passwords/tokens are absent from Redis keys/values. Native middleware further hashes policy name + identity; the Redis value holds only `start`, `end`, `count`. App-key rotation changes account identities, so account budgets reset during that rotation.
 
@@ -91,7 +95,7 @@ Use the project's normal production configuration cache/reload procedure when sh
 
 Observed resolved route order is global proxy/request context → `auth:sanctum` where required → named throttle → bindings → route policy → request validation/controller → existing business services. Laravel's middleware priority recognizes the adapter's native parent, so authentication resolves before the identity callback. There is no body-derived guest fallback for user policies.
 
-Guests/invalid tokens receive **401 before a user limiter runs**, even if they submit an administrator flag. Normal forbidden authenticated access remains **403**. Authenticated attempts consume allowance before route authorization, so repeated forbidden requests can receive **429** instead; their quotas are scoped to that requesting user/role, not a legitimate admin. This precedence deliberately bounds repeated forbidden work and never grants privileges. Successful/invalid/failed requests count; quotas are not released on authorization, validation or business failure.
+Guests/invalid tokens receive **401 before a user limiter runs**, even if they submit an administrator flag. Normal forbidden authenticated access remains **403**. Authenticated attempts consume allowance before route permission authorization, so repeated forbidden requests can receive **429** instead; each requesting user's allowance is separate from other users. This precedence deliberately bounds repeated forbidden work and never grants privileges. Successful/invalid/failed requests count; quotas are not released on authorization, validation or business failure.
 
 Account-wide login throttling reduces distributed-IP brute force while its one-minute window bounds an ordinary lockout. It does not permanently lock the account. It also counts correct credentials and nonexistent accounts, avoiding a credential-dependent admission path. An attacker can still deny a targeted account's login during continuing abuse; thresholds balance this risk with brute-force protection. Shared-NAT users also share public/login-IP allowance. MFA, challenge flows, password recovery and upstream abuse detection remain outside this milestone.
 

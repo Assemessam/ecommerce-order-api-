@@ -10,7 +10,6 @@ use App\Models\User;
 use App\Repositories\Eloquent\EloquentProductRepository;
 use App\Services\Checkout\CheckoutService;
 use App\Services\Order\OrderService;
-use App\Services\Product\ProductAdministrationService;
 use App\Services\Product\ProductCatalogueCache;
 use App\Services\Product\ProductService;
 use Database\Seeders\ProductSeeder;
@@ -173,7 +172,7 @@ it('refreshes existing empty listings after committed product creation', functio
     $this->getJson('/api/products')->assertOk()->assertJsonCount(0, 'data');
     $generation = catalogueGeneration();
 
-    $product = app(ProductAdministrationService::class)->createProduct($admin, ['name' => 'Lamp', 'sku' => 'LAMP', 'price_minor' => 100]);
+    $product = app(ProductService::class)->createProduct($admin, ['name' => 'Lamp', 'sku' => 'LAMP', 'price_minor' => 100]);
 
     expect(catalogueGeneration())->not->toBe($generation);
     $this->getJson('/api/products')->assertOk()->assertJsonPath('data.0.id', $product->id)->assertJsonPath('meta.total', 1);
@@ -185,7 +184,7 @@ it('refreshes every catalogue visible edit after commit', function (array $edit,
     $this->getJson('/api/products')->assertOk();
     $generation = catalogueGeneration();
 
-    app(ProductAdministrationService::class)->updateProduct($admin, (string) $product->id, $edit);
+    app(ProductService::class)->updateProduct($admin, (string) $product->id, $edit);
 
     expect(catalogueGeneration())->not->toBe($generation);
     $this->getJson('/api/products')->assertOk()->assertJsonPath($path, $expected);
@@ -207,7 +206,7 @@ it('refreshes search price and availability membership and total counts after ed
         $this->getJson($url)->assertOk()->assertJsonPath('meta.total', 0);
     }
 
-    app(ProductAdministrationService::class)->updateProduct($admin, (string) $product->id, ['sku' => 'CHANGED', 'price_minor' => 300, 'stock_adjustment' => -2]);
+    app(ProductService::class)->updateProduct($admin, (string) $product->id, ['sku' => 'CHANGED', 'price_minor' => 300, 'stock_adjustment' => -2]);
 
     foreach ($urls as $url) {
         $this->getJson($url)->assertOk()->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $product->id);
@@ -220,7 +219,7 @@ it('does not invalidate an empty admin patch or an idempotent seeder rerun', fun
     $this->getJson('/api/products')->assertOk();
     $generation = catalogueGeneration();
 
-    app(ProductAdministrationService::class)->updateProduct($admin, (string) Product::firstOrFail()->id, []);
+    app(ProductService::class)->updateProduct($admin, (string) Product::firstOrFail()->id, []);
     $this->seed(ProductSeeder::class);
 
     expect(catalogueGeneration())->toBe($generation);
@@ -264,8 +263,8 @@ it('leaves the committed cache untouched after outer rollback of a nested mutati
 
     try {
         match ($operation) {
-            'create' => app(ProductAdministrationService::class)->createProduct($admin, ['name' => 'New', 'sku' => 'NEW', 'price_minor' => 10]),
-            'update' => app(ProductAdministrationService::class)->updateProduct($admin, (string) $item->product_id, ['name' => 'Changed', 'stock_adjustment' => 1]),
+            'create' => app(ProductService::class)->createProduct($admin, ['name' => 'New', 'sku' => 'NEW', 'price_minor' => 10]),
+            'update' => app(ProductService::class)->updateProduct($admin, (string) $item->product_id, ['name' => 'Changed', 'stock_adjustment' => 1]),
             'checkout' => app(CheckoutService::class)->checkout($item->cart->user),
             'cancellation' => app(OrderService::class)->cancelOrder($item->cart->user, (string) $order->id),
         };
@@ -285,7 +284,7 @@ it('bypasses cache inside transactions without publishing uncommitted rows', fun
     DB::beginTransaction();
 
     try {
-        app(ProductAdministrationService::class)->updateProduct($admin, (string) $product->id, ['name' => 'Uncommitted']);
+        app(ProductService::class)->updateProduct($admin, (string) $product->id, ['name' => 'Uncommitted']);
         $this->getJson('/api/products')->assertOk()->assertJsonPath('data.0.name', 'Uncommitted');
     } finally {
         DB::rollBack();
@@ -302,7 +301,7 @@ it('prevents an older in flight database read from repopulating the current gene
 
     $stale = $cache->paginate(new ProductQuery, function () use ($repository, $admin, $product) {
         $oldPage = $repository->paginate(new ProductQuery, ProductStatus::Active);
-        app(ProductAdministrationService::class)->updateProduct($admin, (string) $product->id, ['name' => 'After']);
+        app(ProductService::class)->updateProduct($admin, (string) $product->id, ['name' => 'After']);
 
         return $oldPage;
     });

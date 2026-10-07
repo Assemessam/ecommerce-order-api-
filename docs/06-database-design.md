@@ -159,6 +159,28 @@ The marker is audit evidence, not proof of stock changes by itself: service tran
 
 ## Bonus 7A additive administrator migration
 
+This section records the original boolean authorization migration. Its column remains, but current authorization uses the additive Spatie schema below.
+
 `2026_10_06_173445_add_is_admin_to_users_table.php` adds `users.is_admin BOOLEAN NOT NULL DEFAULT false`. Existing customers receive false; no data is promoted or seeded. No products, promotions, orders or ledger schema is replaced, and their existing CHECK/FK/normalized uniqueness constraints remain the final defense. The new factory `UserFactory::administrator()` is for test fixtures, while application provisioning uses the guarded local command.
 
 Rollback drops this flag and loses administrator assignments; use a forward migration when retaining authorization state matters. Tests cover both new default users and users inserted before this migration. Promotion usage limits remain ledger-derived, protected by the service lock protocol rather than a cross-table aggregate constraint. No counter or reservation schema is introduced.
+
+## ProductService refactor — additive Spatie RBAC schema
+
+`2026_10_07_135020_create_permission_tables.php` uses Spatie's standard published table structure with teams disabled. IDs are bigint; role/permission names and guard names are varchar(255). Every canonical row uses `guard_name=web`.
+
+| Table | Columns and integrity |
+|---|---|
+| `permissions` | `id` PK, `name`, `guard_name`, nullable `created_at` / `updated_at`; unique `(name, guard_name)` |
+| `roles` | `id` PK, `name`, `guard_name`, nullable `created_at` / `updated_at`; unique `(name, guard_name)` |
+| `model_has_permissions` | `permission_id` FK → permissions with cascade delete, `model_type`, `model_id`; PK `(permission_id, model_id, model_type)`; index `(model_id, model_type)` |
+| `model_has_roles` | `role_id` FK → roles with cascade delete, `model_type`, `model_id`; PK `(role_id, model_id, model_type)`; index `(model_id, model_type)` |
+| `role_has_permissions` | `permission_id` FK → permissions and `role_id` FK → roles, both cascade delete; composite PK `(permission_id, role_id)` |
+
+Package polymorphic assignment tables intentionally have no FK from `model_id` to users; supported User/Spatie lifecycle methods own those assignments. The package includes direct-permission storage, although local provisioning assigns canonical roles only. No custom pivot, persisted customer role, team column, or user-management permission is added.
+
+`2026_10_07_135021_bootstrap_authorization.php` freezes the initial three-role/seven-permission mapping, producing 14 role-permission links through Spatie APIs. Only users with the existing `is_admin=true` receive Administrator. Existing manager assignments are retained; duplicate backfill is harmless. Customers remain role-less and no account/token/password is created. The application thereafter uses permissions exclusively; the old flag is hidden, excluded from fillable fields, and neither grants authority nor mirrors later role changes.
+
+`AuthorizationSeeder` idempotently restores the canonical mapping and invalidates Spatie permission metadata, without backfilling the old flag or granting roles to users. UserFactory role states assign after persistence and can be combined. Product, checkout, cancellation, outbox, ledger, stock, money, and ownership schemas are unchanged.
+
+The data-bootstrap migration's `down()` deliberately retains assignments; rollback cannot safely infer which grants an operator later added or revoked. Reapplying it repeats legacy backfill and can regrant Administrator to a revoked user whose historical `is_admin=true` remains. Rolling back the package-schema migration drops its five authorization tables and loses assignments. Neither rollback translates roles back into `is_admin`. Prefer forward fixes; deploying old boolean-authorizing code against retained historical flags could restore previously revoked authority. See [19-product-service-rbac-refactor.md](19-product-service-rbac-refactor.md).

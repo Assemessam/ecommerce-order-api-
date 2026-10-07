@@ -2,7 +2,8 @@
 
 namespace App\Console\Commands;
 
-use App\Services\Auth\AdministratorProvisioningService;
+use App\Enums\InternalRole;
+use App\Services\Auth\RoleProvisioningService;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use LogicException;
@@ -13,10 +14,10 @@ class GrantAdministrator extends Command
 
     protected $description = 'Grant administrator privileges to an existing user in the local environment only';
 
-    public function handle(AdministratorProvisioningService $administrators): int
+    public function handle(RoleProvisioningService $roles): int
     {
         try {
-            $administrators->grantAdministrator($this->argument('email'));
+            $roles->grantRole($this->argument('email'), InternalRole::Administrator->value);
         } catch (LogicException $exception) {
             $this->error($exception->getMessage());
 

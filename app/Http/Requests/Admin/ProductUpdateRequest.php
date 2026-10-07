@@ -8,7 +8,13 @@ class ProductUpdateRequest extends ProductStoreRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->can('update', Product::class) ?? false;
+        $actor = $this->user();
+
+        if ($actor === null || ! $actor->can('update', Product::class)) {
+            return false;
+        }
+
+        return ! $this->exists('stock_adjustment') || $actor->can('adjustInventory', Product::class);
     }
 
     /** @return array<string, array<mixed>> */

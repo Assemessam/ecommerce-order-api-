@@ -2,12 +2,12 @@
 
 Laravel REST API for a Senior Laravel Developer assessment: product discovery, customer authentication, carts, promotions, atomic checkout, historical orders, and cancellation. The implementation prioritizes exact money calculations, customer isolation, and PostgreSQL concurrency correctness. Submission deadline: October 13, 2026.
 
-The current submission review, requirements matrices, fresh-clone rehearsal, and final verification are in [docs/18-final-submission-review.md](docs/18-final-submission-review.md). Earlier milestone reports remain historical evidence: [mandatory scope](docs/13-final-audit.md), [administration](docs/14-admin-management.md), [catalogue caching](docs/15-redis-caching.md), [order events/queues](docs/16-order-events-queues.md), and [API rate limiting](docs/17-api-rate-limiting.md). The separate employer brief is not present in this repository; the final review uses the supplied assessment summary and [the recorded requirements](docs/02-requirements.md).
+The current ProductService and Spatie RBAC implementation, permission matrix, migration/provisioning procedure, and verification are in [docs/19-product-service-rbac-refactor.md](docs/19-product-service-rbac-refactor.md). The [October 6 submission review](docs/18-final-submission-review.md) and earlier milestone reports remain historical evidence: [mandatory scope](docs/13-final-audit.md), [administration](docs/14-admin-management.md), [catalogue caching](docs/15-redis-caching.md), [order events/queues](docs/16-order-events-queues.md), and [API rate limiting](docs/17-api-rate-limiting.md). The preserved local `docs/18-structural-integrity-audit.md` records the pre-refactor architecture and is excluded from the refactor commit; its boolean-authorization and separate-service recommendations are historical. The separate employer brief is not present in this repository; the earlier submission review uses the supplied assessment summary and [the recorded requirements](docs/02-requirements.md).
 
 ## Stack and prerequisites
 
 - PHP **8.4.1+ for the committed dependency lock**; the supplied Docker image uses PHP 8.5.
-- Laravel 13.34.0, Sanctum 4.3.3, PostgreSQL 17, Redis 7.4, PhpRedis 6.3.0, Pest 4.7.8, Composer 2.
+- Laravel 13.34.0, Sanctum 4.3.3, Spatie Laravel Permission 8.3.0, PostgreSQL 17, Redis 7.4, PhpRedis 6.3.0, Pest 4.7.8, Composer 2.
 - Docker Engine with Compose v2 and Git are the recommended local prerequisites.
 - Native execution requires 64-bit PHP, Composer, a PostgreSQL instance, and the extensions reported by `composer check-platform-reqs`, plus `pdo_pgsql` for this application and the supplied image's `intl`/`pcntl` development tooling support. PHP 8.3 cannot install the locked Symfony 8.1 dependencies even though the root Composer constraint allows it.
 - Node/npm and frontend builds are unnecessary for this JSON API.
@@ -36,6 +36,8 @@ curl -H 'Accept: application/json' http://localhost:8091/api/health
 ```
 
 On Linux the bind-mounted files must be writable by the container user (default UID/GID 1000). Override the Compose user for one-off setup commands with `--user "$(id -u):$(id -g)"` if your host IDs differ. No production web server is included: `artisan serve` is a development runtime.
+
+The additive RBAC migrations create Spatie's five standard tables, bootstrap three internal roles and seven permissions, and backfill only existing `is_admin=true` users as Administrator. They create no user accounts. `AuthorizationSeeder` can idempotently restore the canonical role/permission definitions without granting users roles. Ordinary customers have no internal role.
 
 ### Environment
 
@@ -104,7 +106,7 @@ Redis outages preserve committed orders. Expiring PostgreSQL leases recover lost
 
 ## API rate limiting (Bonus 7D)
 
-Named Laravel limiters protect every defined `/api` endpoint before business operations. Registration permits 5/hour/IP. Login retains 30/minute/IP and 5/minute/account+IP, plus 20/minute/account across IPs. Catalogue, cart/order/profile reads, health and admin reads allow 120/minute in separate categories; cart writes 60; promotion/admin/logout writes 30; checkout/cancellation 20. Public identities use validated canonical IPs; authenticated identities use the stored user ID and administrator flag. Budgets are shared across tokens and across routes within each category. No global API limiter is nested around these policies.
+Named Laravel limiters protect every defined `/api` endpoint before business operations. Registration permits 5/hour/IP. Login retains 30/minute/IP and 5/minute/account+IP, plus 20/minute/account across IPs. Catalogue, cart/order/profile reads, health and admin reads allow 120/minute in separate categories; cart writes 60; promotion/admin/logout writes 30; checkout/cancellation 20. Public identities use validated canonical IPs; every authenticated policy uses stable `user:<id>` identity. Budgets are shared across tokens and routes within each category. Adding, removing, or combining roles does not reset or multiply allowance. No global API limiter is nested around these policies.
 
 HTTP 429 uses the existing `TOO_MANY_REQUESTS` JSON envelope and request ID, with native `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining` and rejection reset headers. Replays and invalid requests consume allowance. A throttled checkout has no purchase effects; retrying its idempotency key after the window expires preserves the original checkout contract. Missing authentication returns 401 before throttling; authenticated authorization failures normally return 403, and repeated attempts can return 429 before authorization.
 
@@ -137,7 +139,9 @@ docker compose exec -T api php artisan test --compact \
   tests/Feature/Services/Cart/CartPromotionConcurrencyTest.php \
   tests/Feature/Services/Checkout/CheckoutConcurrencyTest.php \
   tests/Feature/Services/Order/OrderConcurrencyTest.php \
-  tests/Feature/Services/Admin/AdminConcurrencyTest.php
+  tests/Feature/Services/Admin/AdminConcurrencyTest.php \
+  tests/Feature/Services/Order/OrderOutboxConcurrencyTest.php \
+  tests/Feature/Http/Middleware/RateLimitConcurrencyTest.php
 docker compose exec -T api vendor/bin/pint --dirty --format agent
 docker compose exec -T api composer validate --strict
 docker compose exec -T api composer audit
@@ -147,6 +151,8 @@ git diff --check
 HTTP/service/repository/constraint tests use real PostgreSQL; the calculator is tested independently with exact expected integers. Fault injection covers rollback and normally unreachable corrupt/missing states. Real contention tests use separate PHP processes and PostgreSQL connections, an independent observer, and two observed lock waiters before barrier release. They exercise authenticated HTTP kernel requests; they are not a network load benchmark. Injected SQLSTATE deadlock tests establish retry behavior, not observed deadlock cycles. No static analyzer is installed; see the audit's Larastan assessment.
 
 The complete suite requires the project Redis service. Rate limiting stays enabled with a new UUID prefix in Redis DB 7 for each test; HTTP child processes share that prefix and cleanup deletes only its keys. Existing tests disable catalogue caching by default; caching tests explicitly enable it with a unique namespace in Redis DB 3. Cleanup deletes only that namespace's keys and never calls FLUSHDB/FLUSHALL. The benchmark uses 25 uncached and 25 warm samples per listing variant, reports actual timings and product query counts, and removes its PostgreSQL/Redis fixtures. Local measurements are not production capacity estimates. Redis-enabled independent-process concurrency verification is described in [the bonus report](docs/15-redis-caching.md).
+
+RBAC coverage includes exact role/permission mappings, legacy backfill, registration/mass-assignment protection, current permissions on existing tokens and reused users, inventory authorization, all-staff customer ownership, local provisioning, and role-independent rate budgets. Spatie metadata uses the isolated in-memory `array` cache store; it never shares the catalogue, queue, or limiter Redis connection. See [the current verification record](docs/19-product-service-rbac-refactor.md).
 
 ## API documentation and Postman
 
@@ -186,7 +192,7 @@ GET routes also accept HEAD. All routes are named; inspect them with `docker com
 
 Catalogue search is a trimmed, case-insensitive **literal substring of name, SKU, or description**, with escaped `%`, `_`, and backslash. `search` is limited to 100 characters. Inclusive `min_price` / `max_price` accept nonnegative integer minor units; `available=true` selects positive stock, `false` selects zero stock. Inactive products are hidden even on direct lookup. Sorting allows name / price / created_at and asc / desc, with an ID tie-breaker. Catalogue and history default to 15 entries, maximum 100; history order is fixed newest first. Unknown query keys are ignored and omitted from links; GET bodies cannot override filters.
 
-Registration requires name, email, password, and password_confirmation. Emails normalize to lowercase. Passwords require 12+ characters, mixed case, a digit and symbol; bcrypt's 72-byte limit and null-byte rejection apply. Login accepts existing credentials without imposing the registration strength rules again. Optional device_name labels the token. Sanctum hashes tokens at rest, authenticates bearer tokens only, and logout revokes the current token without affecting other devices. Registration/login are rate limited; tokens otherwise retain the documented no-expiry and wildcard-ability policy; administrator access additionally requires the current stored administrator flag.
+Registration requires name, email, password, and password_confirmation. Emails normalize to lowercase. Passwords require 12+ characters, mixed case, a digit and symbol; bcrypt's 72-byte limit and null-byte rejection apply. Login accepts existing credentials without imposing the registration strength rules again. Optional device_name labels the token. Sanctum hashes tokens at rest, authenticates bearer tokens only, and logout revokes the current token without affecting other devices. Registration/login are rate limited; tokens retain the documented no-expiry and wildcard-ability policy. Admin access requires current Spatie permissions; existing tokens reflect role grants and revocations without reissuance. Registration, mass assignment, and normal customer resources cannot assign or expose internal roles/permissions.
 
 Cart IDs are inferred from the token. Item URLs identify cart lines, not products. POST adds to a quantity; PATCH replaces it. Product IDs and quantities must be actual positive JSON integers. Extra identity/price/total fields cannot alter the purchase. Missing/foreign resources return indistinguishable 404 errors. An absent cart reads as an empty estimate without creating a record. Cart edits never reserve or change inventory.
 
@@ -206,7 +212,7 @@ Controller → Service → Repository interface → Eloquent repository → Mode
 
 Form Requests validate input; controllers select HTTP responses; services own business rules and transaction boundaries; repositories encapsulate queries, row locks, and writes. Repository contracts are bound in AppServiceProvider. Checkout and cancellation coordinate several repositories inside one service transaction; repositories do not independently commit workflows. Pricing/eligibility calculations are shared by estimates and checkout. Native Sanctum issuance/revocation is a documented framework persistence exception inside AuthService. Detail relationships are eager-loaded; order summaries do not query live catalogue data.
 
-Architecture decisions are in [docs/05-architecture.md](docs/05-architecture.md), schema/constraints in [docs/06-database-design.md](docs/06-database-design.md), and detailed transaction discussions in [checkout](docs/11-checkout.md) and [order management](docs/12-order-management.md). Earlier milestone verification sections are historical; the final audit is the current evidence.
+Architecture decisions are in [docs/05-architecture.md](docs/05-architecture.md), schema/constraints in [docs/06-database-design.md](docs/06-database-design.md), and detailed transaction discussions in [checkout](docs/11-checkout.md) and [order management](docs/12-order-management.md). Earlier milestone verification sections are historical; [the ProductService/RBAC release review](docs/19-product-service-rbac-refactor.md) records current verification evidence.
 
 ## Money, checkout, and concurrency
 
@@ -228,23 +234,39 @@ Orders preserve purchase names, SKUs, quantities, unit prices, line subtotals, t
 
 Cancellation supports **placed → cancelled** only. OrderService locks the owned order, checks eligibility under that lock, locks products ascending, and restores snapshot quantities with overflow-safe conditional increments. Status and equal cancellation/restoration timestamps commit with all stock changes. A repeated cancellation returns the original persisted markers without another increment. **Order → Products ascending ID** introduces no reverse Cart/Promotion acquisition. Cancellation retains promotion usage and historical discounts.
 
-## Administrator product and promotion management (Bonus 7A)
+## Product and promotion administration with Spatie RBAC
 
-Apply the additive migration with `docker compose exec -T api php artisan migrate --no-interaction`. It adds `users.is_admin`, default false for existing and new customers. Registration cannot grant this flag, and User mass assignment excludes it. All eight admin routes require Sanctum plus Product/Promotion policies: guests get 401 and ordinary customers get 403. Customer ownership policies still apply to administrators on customer routes.
+Apply additive migrations with `docker compose exec -T api php artisan migrate --no-interaction`. Spatie Laravel Permission provides three internal roles: `product_manager`, `promotion_manager`, and `administrator`. Customers have no internal role; users may hold both manager roles to receive their combined permissions. Administrator receives all seven permissions through Spatie assignment. There is no universal Administrator policy bypass. All staff remain subject to cart/order/checkout/cancellation ownership.
 
-Provision an administrator **only in local development**: register your own account with a private password, then run this command for that existing email while APP_ENV=local (replace the example email with your registered local email):
+| Permission | Product Manager | Promotion Manager | Administrator |
+|---|---|---|---|
+| `products.view-admin` | Yes | No | Yes |
+| `products.create` | Yes | No | Yes |
+| `products.update` | Yes | No | Yes |
+| `inventory.adjust` | Yes | No | Yes |
+| `promotions.view-admin` | No | Yes | Yes |
+| `promotions.create` | No | Yes | Yes |
+| `promotions.update` | No | Yes | Yes |
+
+Provision roles **only in local development**: register your own account with a private password, then run a command for that existing email while APP_ENV=local (replace the example email with your registered local email):
 
 ```bash
+docker compose exec -T api php artisan roles:grant developer@example.test product_manager --no-interaction
+docker compose exec -T api php artisan roles:grant developer@example.test promotion_manager --no-interaction
+docker compose exec -T api php artisan roles:revoke developer@example.test product_manager --no-interaction
+# Compatibility alias: grants the administrator role.
 docker compose exec -T api php artisan admin:grant developer@example.test --no-interaction
 ```
 
-The command refuses every other application environment and missing users, creates no credentials, and changes no password/token. Log in through the existing auth endpoint. The separate Admin Postman folder captures `admin_bearer_token` using empty-by-default `admin_email` / `admin_password` variables. Production provisioning and a dedicated revocation workflow are outside this assessment feature.
+Grant/revoke commands accept only canonical roles and existing users, are idempotent, and create/change no password or token. They refuse all other environments. `admin:grant` remains an alias for granting Administrator; revoke it with `roles:revoke ... administrator`. The separate Admin Postman folder captures `admin_bearer_token` using empty-by-default `admin_email` / `admin_password` variables. Its complete product/promotion sequence requires Administrator or both manager roles. No role-management HTTP endpoint or production provisioning workflow is added.
 
-Product POST accepts name, SKU, price_minor and optional description, stock_quantity and status. PATCH accepts property edits and a signed, nonzero **stock_adjustment**, applied to the locked current stock; absolute stock_quantity on PATCH is rejected. Prices and inventory use actual JSON integers with signed-bigint bounds. Example PATCH: `{"price_minor":2099,"stock_adjustment":-2,"status":"inactive"}`. A negative result or overflow returns 409 and rolls back all edits. Separate stock-adjustment requests are additive and not idempotent: don't blindly retry an uncertain response. Inactive products remain available to admin reads but hidden publicly; historical order items remain unchanged.
+The retained `users.is_admin` column is hidden audit history. Only the initial migration reads it to backfill existing administrators; it no longer authorizes, controls limiter identity, or mirrors later assignments. A true flag without a permission grants no access. Spatie's permission namespace is `web`, matching the existing User provider, while the API continues to require Sanctum bearer tokens. Permission metadata uses `array` cache with `spatie.permission.cache`; supported package mutation APIs invalidate it, and authorization clears loaded User role/permission relationships before checking current assignments.
+
+Product POST accepts name, SKU, price_minor and optional description, stock_quantity and status. PATCH requires `products.update`; supplying **stock_adjustment** additionally requires `inventory.adjust`, before validation and again for direct service calls. The signed, nonzero delta applies to locked current stock; absolute stock_quantity on PATCH is rejected. Prices and inventory use actual JSON integers with signed-bigint bounds. Example PATCH: `{"price_minor":2099,"stock_adjustment":-2,"status":"inactive"}`. A negative result or overflow returns 409 and rolls back all edits. Separate stock-adjustment requests are additive and not idempotent: don't blindly retry an uncertain response. Inactive products remain available to permitted admin reads but hidden publicly; historical order items remain unchanged.
 
 Promotion POST/PATCH use the existing percentage basis points/fixed minor-unit value, caps, validity, usage limits and is_active flag. Example PATCH: `{"type":"fixed","value":500,"is_active":false}`. Partial changes are checked against retained fields under the promotion lock. Supplied non-null limits below consumed global/largest individual customer usage return 409; equality is allowed and exhausts eligibility, null removes the limit. Edits affect future checkout; order snapshots and redemptions are preserved. Retirement uses deactivation; no hard-delete routes exist.
 
-Transactions lock only the affected Product or Promotion row and keep it through commit, with bounded contention retries. Checkout/cancellation retain their original lock order, calculations and ledger rules. Independent PHP/PostgreSQL contention tests cover both queued orders for stock addition/removal, cancellation restoration, global/customer limit reductions, and discount changes. The complete report, API examples, known limitations, and future catalogue cache-invalidation map are in [docs/14-admin-management.md](docs/14-admin-management.md). Redis caching, order queues, and additional throttling are outside Bonus 7A.
+Both public and administrative product controllers use the unified `ProductService`; `ProductAdministrationService` has been removed. Explicit public/admin method names preserve public active visibility and authoritative inactive admin reads. `ProductCatalogueCache` remains separate, and ProductService schedules mutation invalidation after commit. Transactions lock only the affected Product or Promotion row, with bounded retries. Checkout/cancellation retain their original lock order, calculations and ledger rules. Independent PHP/PostgreSQL contention tests use domain manager actors and preserve both queued orders for stock changes, cancellation restoration, usage-limit reductions, and discount changes. Current architecture and evidence are in [docs/19-product-service-rbac-refactor.md](docs/19-product-service-rbac-refactor.md); [Bonus 7A](docs/14-admin-management.md) retains its original historical evidence.
 
 ## Trade-offs and known limitations
 
@@ -254,7 +276,9 @@ Transactions lock only the affected Product or Promotion row and keep it through
 - Per-customer usage enforcement has PostgreSQL sequential coverage and shares the tested promotion/cart locks; the harness does not isolate a concurrent per-customer-only limit scenario.
 - Snapshot immutability, redemption identity consistency, and inventory restoration semantics assume supported service writers; privileged SQL can bypass them. Legacy redemption rows may have NULL order_id. Retention/account deletion policy is undecided; purchase-history foreign keys restrict deletion.
 - The cancellation migration cannot downgrade while cancelled history exists: the earlier placed-only schema cannot represent it. Use forward fixes for retained data.
+- Dropping the Spatie schema loses role/permission assignments. Rolling back and reapplying the bootstrap can regrant revoked Administrator roles to retained legacy `is_admin=true` users; returning to old boolean-authorizing code can also revive stale flags. Use forward fixes. Provisioning commands are local-only, so production operator provisioning remains a separate workflow.
+- The initial stable `user:<id>` limiter rollout does not reuse old authenticated counters. Coordinate the one-minute transition; subsequent role changes preserve allowance.
 - Category-based throttles and indefinite customer tokens are explicit assessment policies. Limiter outages fail closed with 503; Redis eviction/restarts reset allowances and fixed windows permit boundary bursts. Production infrastructure, TLS, managed secrets, backups, and broader abuse controls require a separate operational review.
 - The default customer seeder is not repeatable; use registration and the two explicit repeatable sample seeders above.
 
-Bonus 7D is committed as `a21aab30064583e820c59dbb9c4bf9d5cca3fbfd`. Final review changes remain uncommitted on `release/ecommerce-assessment-final`; merge, push, deployment, and submission require separate approval. Review the final diff and the submission steps in [docs/18-final-submission-review.md](docs/18-final-submission-review.md).
+The ProductService/RBAC refactor was developed on `feature/product-service-rbac-refactor` from `bb6f50f` for integration into `release/ecommerce-assessment-final`. Review its verification and remaining limits in [docs/19-product-service-rbac-refactor.md](docs/19-product-service-rbac-refactor.md); the earlier submission rehearsal remains in [docs/18-final-submission-review.md](docs/18-final-submission-review.md). Release review stops before pushing, merging to main, deployment, or submission.

@@ -3,6 +3,7 @@
 namespace App\Repositories\Eloquent;
 
 use App\Contracts\Repositories\UserRepositoryInterface;
+use App\Enums\InternalRole;
 use App\Models\User;
 
 class EloquentUserRepository implements UserRepositoryInterface
@@ -22,9 +23,18 @@ class EloquentUserRepository implements UserRepositoryInterface
         $user->update(['password' => $passwordHash]);
     }
 
-    public function grantAdministrator(User $user): void
+    public function findByEmailForUpdate(string $email): ?User
     {
-        $user->is_admin = true;
-        $user->save();
+        return User::query()->where('email', $email)->lockForUpdate()->first();
+    }
+
+    public function assignRole(User $user, InternalRole $role): void
+    {
+        $user->assignRole($role);
+    }
+
+    public function removeRole(User $user, InternalRole $role): void
+    {
+        $user->removeRole($role);
     }
 }

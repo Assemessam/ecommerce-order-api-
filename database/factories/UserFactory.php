@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\InternalRole;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -45,6 +46,16 @@ class UserFactory extends Factory
 
     public function administrator(): static
     {
-        return $this->state(fn (array $attributes): array => ['is_admin' => true]);
+        return $this->afterCreating(fn (User $user): User => $user->assignRole(InternalRole::Administrator));
+    }
+
+    public function productManager(): static
+    {
+        return $this->afterCreating(fn (User $user): User => $user->assignRole(InternalRole::ProductManager));
+    }
+
+    public function promotionManager(): static
+    {
+        return $this->afterCreating(fn (User $user): User => $user->assignRole(InternalRole::PromotionManager));
     }
 }

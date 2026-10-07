@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Ecommerce Order & Promotion API",
-    "description": "Assessment API examples. Set base_url (no /api suffix), a fresh local customer_email, and a private customer_password (12+ characters with mixed case, a number and symbol; <=72 bytes). Optional ProductSeeder and PromotionSeeder supply demonstration data. This sequence lists stocked products, captures IDs, deletes then re-adds a cart line, applies/removes a promotion, checks out, reads/cancels the order, and logs out. WELCOME10 must be eligible. The first checkout generates a key only when blank; preserve it for retries and clear it for a different purchase. Registration is not repeatable with the same email. On replay after refilling, the old key returns the original order and leaves the cart untouched. Run individual requests as needed. Scripts capture only safe integer IDs; large bigint responses require a lossless JSON client. Credentials and captured tokens must stay local and be cleared before sharing/export. JSON/route/script validation does not mean Postman execution was verified.\n\nBonus 7A: Admin management is a separate folder with its own admin_bearer_token. Register an account locally, run admin:grant for that existing email with APP_ENV=local, then set private admin_email/admin_password and run Admin login. Admin product and promotion creation require unique SKU/code values. PATCH stock_adjustment is an additive, non-idempotent operation; do not blindly rerun it after an uncertain response. No public admin registration or DELETE routes exist.\n\nBonus 7D: All /api endpoints use shared Redis rate limits. Registration: 5/hour/IP. Login: 30/minute/IP, 5/minute/account+IP, 20/minute/account across IPs. Public catalogue and health: 120/minute/IP in separate categories. Customer cart/order/profile reads: 120/minute; cart writes: 60; promotions/logout: 30; checkout/cancellation: 20. Admin reads: 120; admin writes: 30. Authenticated quotas use the stored user, across tokens. A 429 returns error.code TOO_MANY_REQUESTS, error.request_id matching X-Request-ID, Retry-After seconds, X-RateLimit-Limit/Remaining and X-RateLimit-Reset. Respect Retry-After and retain the checkout Idempotency-Key; replays also consume quota. Limiter connection failure is generic 503 before business operations. Never blindly repeat a non-idempotent stock adjustment after an uncertain response. See docs/17-api-rate-limiting.md for proxy, outage and retry trade-offs.",
+    "description": "Assessment API examples. Set base_url (no /api suffix), a fresh local customer_email, and a private customer_password (12+ characters with mixed case, a number and symbol; <=72 bytes). Optional ProductSeeder and PromotionSeeder supply demonstration data. This sequence lists stocked products, captures IDs, deletes then re-adds a cart line, applies/removes a promotion, checks out, reads/cancels the order, and logs out. WELCOME10 must be eligible. The first checkout generates a key only when blank; preserve it for retries and clear it for a different purchase. Registration is not repeatable with the same email. On replay after refilling, the old key returns the original order and leaves the cart untouched. Run individual requests as needed. Scripts capture only safe integer IDs; large bigint responses require a lossless JSON client. Credentials and captured tokens must stay local and be cleared before sharing/export. JSON/route/script validation does not mean Postman execution was verified.\n\nCurrent Spatie RBAC: Admin management is a separate folder with its own admin_bearer_token. Register an account locally, use roles:grant EMAIL product_manager and/or promotion_manager with APP_ENV=local, then set private admin_email/admin_password and run Admin login. admin:grant EMAIL remains the Administrator alias. Customers have no internal role; users may hold multiple roles. Product Manager receives products.view-admin, products.create, products.update, inventory.adjust; Promotion Manager receives promotions.view-admin, promotions.create, promotions.update; Administrator receives all seven. The complete folder sequence requires Administrator or both manager roles. roles:revoke EMAIL ROLE removes the named role; existing tokens reflect grant/revoke without reissuance. The retained is_admin flag grants no access. Admin product and promotion creation require unique SKU/code values. PATCH stock_adjustment additionally requires inventory.adjust alongside products.update and remains additive/non-idempotent; do not blindly rerun it after an uncertain response. All staff retain customer ownership restrictions. No public role-management/admin registration or DELETE routes exist. See docs/19-product-service-rbac-refactor.md.\n\nBonus 7D: All /api endpoints use shared Redis rate limits. Registration: 5/hour/IP. Login: 30/minute/IP, 5/minute/account+IP, 20/minute/account across IPs. Public catalogue and health: 120/minute/IP in separate categories. Customer cart/order/profile reads: 120/minute; cart writes: 60; promotions/logout: 30; checkout/cancellation: 20. Admin reads: 120; admin writes: 30. Authenticated quotas use stable user:<id> across tokens, IP changes and role grants/revocations/combinations; roles never reset or multiply allowance. A 429 returns error.code TOO_MANY_REQUESTS, error.request_id matching X-Request-ID, Retry-After seconds, X-RateLimit-Limit/Remaining and X-RateLimit-Reset. Respect Retry-After and retain the checkout Idempotency-Key; replays also consume quota. Limiter connection failure is generic 503 before business operations. Never blindly repeat a non-idempotent stock adjustment after an uncertain response. See docs/17-api-rate-limiting.md for proxy, outage and retry trade-offs.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -785,7 +785,7 @@
               }
             ],
             "url": "{{base_url}}/api/auth/login",
-            "description": "Requires an existing locally provisioned administrator. Credentials and captured admin token remain private. Expected success: 200.",
+            "description": "Use any existing locally registered account with private credentials. Login itself grants no role. Provision canonical roles locally through roles:grant (admin:grant is the Administrator alias); existing tokens reflect later roles:revoke. The full folder sequence requires Administrator or both manager roles. Credentials and captured token remain private. Expected success: 200.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\",\n  \"device_name\": \"postman-admin\"\n}",
@@ -827,7 +827,7 @@
               }
             ],
             "url": "{{base_url}}/api/admin/products?per_page=15&sort=created_at&direction=desc",
-            "description": "Includes active and inactive products; optional status=active or inactive. Expected success: 200."
+            "description": "Requires products.view-admin (Product Manager or Administrator). Includes active/inactive products; optional status=active or inactive. Promotion Manager alone receives 403. Expected success: 200."
           },
           "event": [
             {
@@ -857,7 +857,7 @@
               }
             ],
             "url": "{{base_url}}/api/admin/products",
-            "description": "Set a unique admin_sku before creation. Captures admin_product_id. Expected success: 201.",
+            "description": "Requires products.create (Product Manager or Administrator). Set a unique admin_sku before creation. Captures admin_product_id. Expected success: 201.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Admin Demo Product\",\n  \"sku\": \"{{admin_sku}}\",\n  \"description\": \"Managed through the admin API\",\n  \"price_minor\": 1899,\n  \"stock_quantity\": 10,\n  \"status\": \"active\"\n}",
@@ -896,7 +896,7 @@
               }
             ],
             "url": "{{base_url}}/api/admin/products/{{admin_product_id}}",
-            "description": "Requires captured admin_product_id; inactive products are readable. Expected success: 200."
+            "description": "Requires products.view-admin (Product Manager or Administrator) and captured admin_product_id; inactive products are readable. Expected success: 200."
           },
           "event": [
             {
@@ -926,7 +926,7 @@
               }
             ],
             "url": "{{base_url}}/api/admin/products/{{admin_product_id}}",
-            "description": "Requires captured admin_product_id. Adds three units under a row lock; this delta is non-idempotent and repeats add again. Use negative deltas for removal. Absolute stock_quantity is rejected. Expected success: 200.",
+            "description": "Requires both products.update and inventory.adjust (Product Manager or Administrator), plus captured admin_product_id. Adds three units under a row lock; this delta is non-idempotent and repeats add again. Use negative deltas for removal. Absolute stock_quantity is rejected. Missing inventory permission refuses the whole patch before any metadata/stock change. Expected success: 200.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Updated Admin Demo Product\",\n  \"price_minor\": 2099,\n  \"description\": null,\n  \"status\": \"inactive\",\n  \"stock_adjustment\": 3\n}",
@@ -961,7 +961,7 @@
               }
             ],
             "url": "{{base_url}}/api/admin/promotions?per_page=15",
-            "description": "Includes inactive promotions and redemptions_count; optional is_active=true or false. Expected success: 200."
+            "description": "Requires promotions.view-admin (Promotion Manager or Administrator). Includes inactive promotions and redemptions_count; optional is_active=true or false. Product Manager alone receives 403. Expected success: 200."
           },
           "event": [
             {
@@ -991,7 +991,7 @@
               }
             ],
             "url": "{{base_url}}/api/admin/promotions",
-            "description": "Set a unique admin_promotion_code. Percentage value=1000 means ten percent. Captures admin_promotion_id. Expected success: 201.",
+            "description": "Requires promotions.create (Promotion Manager or Administrator). Set a unique admin_promotion_code. Percentage value=1000 means ten percent. Captures admin_promotion_id. Expected success: 201.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"code\": \"{{admin_promotion_code}}\",\n  \"type\": \"percentage\",\n  \"value\": 1000,\n  \"minimum_cart_amount_minor\": 0,\n  \"maximum_discount_minor\": 2500,\n  \"starts_at\": null,\n  \"expires_at\": null,\n  \"global_usage_limit\": 100,\n  \"per_customer_usage_limit\": 1,\n  \"is_active\": true\n}",
@@ -1030,7 +1030,7 @@
               }
             ],
             "url": "{{base_url}}/api/admin/promotions/{{admin_promotion_id}}",
-            "description": "Requires captured admin_promotion_id; returns aggregate usage without customer ledger identities. Expected success: 200."
+            "description": "Requires promotions.view-admin (Promotion Manager or Administrator) and captured admin_promotion_id; returns aggregate usage without customer ledger identities. Expected success: 200."
           },
           "event": [
             {
@@ -1060,7 +1060,7 @@
               }
             ],
             "url": "{{base_url}}/api/admin/promotions/{{admin_promotion_id}}",
-            "description": "Requires captured admin_promotion_id. Limit reductions below consumed usage return 409. Edits affect future eligibility; historical snapshots and redemption records remain unchanged. Expected success: 200.",
+            "description": "Requires promotions.update (Promotion Manager or Administrator) and captured admin_promotion_id. Limit reductions below consumed usage return 409. Edits affect future eligibility; historical snapshots/redemption records remain unchanged. Expected success: 200.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"type\": \"fixed\",\n  \"value\": 500,\n  \"maximum_discount_minor\": null,\n  \"starts_at\": null,\n  \"expires_at\": null,\n  \"global_usage_limit\": 100,\n  \"per_customer_usage_limit\": 2,\n  \"is_active\": false\n}",
@@ -1085,7 +1085,7 @@
           "response": []
         }
       ],
-      "description": "Shared admin read quota 120/minute/admin and mutation quota 30/minute/admin. Authentication remains required and privileges stay server-controlled. On 429 respect Retry-After. Stock adjustments remain additive and non-idempotent; do not retry an uncertain successful response automatically."
+      "description": "Shared admin read quota 120/minute/user and mutation quota 30/minute/user across both domains. Product requests require products.view-admin/create/update; stock adjustment additionally requires inventory.adjust. Promotion requests require promotions.view-admin/create/update. Product Manager has product/inventory permissions; Promotion Manager has promotion permissions; Administrator or both manager roles may run the complete folder. Existing bearer tokens reflect role changes; is_admin grants no access. Missing/invalid tokens return 401; missing permission normally returns 403, while repeated forbidden attempts can reach 429. Roles do not reset quotas. On 429 respect Retry-After. Stock deltas remain additive and non-idempotent."
     }
   ]
 }
