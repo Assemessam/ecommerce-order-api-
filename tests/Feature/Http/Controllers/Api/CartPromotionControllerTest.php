@@ -279,8 +279,8 @@ it('preserves an invalid selected code after deleting the last line', function (
 
 it('uses configured currency and current multi-line subtotals for fixed discounts', function () {
     config(['catalogue.currency' => 'EUR']);
-    $item = CartItem::factory()->for(Product::factory()->create(['price_minor' => 1000]))->create(['quantity' => 2]);
-    CartItem::factory()->for($item->cart)->for(Product::factory()->create(['price_minor' => 500]))->create(['quantity' => 3]);
+    $item = CartItem::factory()->for(Product::factory()->create(['price_minor' => 1000, 'stock_quantity' => 2]))->create(['quantity' => 2]);
+    CartItem::factory()->for($item->cart)->for(Product::factory()->create(['price_minor' => 500, 'stock_quantity' => 3]))->create(['quantity' => 3]);
     $promotion = Promotion::factory()->fixed(4000)->create();
 
     $this->withToken($item->cart->user->createToken('promotion-test')->plainTextToken)->postJson('/api/cart/promotion', ['code' => $promotion->code])
