@@ -89,6 +89,17 @@ jobs:
               vendor/bin/pint --test
             ' 2>&1 | tee storage/logs/quality-checks.log
 
+      - name: Generate and verify the OpenAPI contract
+        id: openapi
+        run: |
+          docker compose run --rm --no-deps -T \
+            -e DB_DATABASE=ecommerce_order_api_test api sh -euc '
+              php artisan migrate --force --no-interaction
+              php artisan scramble:export --path=docs/openapi.json --fail-on-unknown --no-interaction
+              php artisan test --compact --ci --log-junit=storage/logs/openapi-junit.xml tests/Feature/OpenApiDocumentationTest.php
+            ' 2>&1 | tee storage/logs/openapi-checks.log
+          git diff --exit-code -- docs/openapi.json
+
       - name: Run complete regression suite sequentially
         id: tests
         run: |
@@ -115,10 +126,11 @@ jobs:
           SERVICES_RESULT: ${{ steps.services.outcome }}
           INSTALL_RESULT: ${{ steps.install.outcome }}
           CHECKS_RESULT: ${{ steps.checks.outcome }}
+          OPENAPI_RESULT: ${{ steps.openapi.outcome }}
           TESTS_RESULT: ${{ steps.tests.outcome }}
         run: |
-          printf 'PHP runtime build: **%s**\n\nPostgreSQL/Redis readiness: **%s**\n\nLocked dependencies and application key: **%s**\n\nPlatform, Composer validation/audit and Pint: **%s**\n\nComplete sequential regression suite: **%s**\n\nSee the verification artifact and step logs for test results and diagnostics.\n' \
-            "$BUILD_RESULT" "$SERVICES_RESULT" "$INSTALL_RESULT" "$CHECKS_RESULT" "$TESTS_RESULT" \
+          printf 'PHP runtime build: **%s**\n\nPostgreSQL/Redis readiness: **%s**\n\nLocked dependencies and application key: **%s**\n\nPlatform, Composer validation/audit and Pint: **%s**\n\nOpenAPI generation, coverage and committed export: **%s**\n\nComplete sequential regression suite: **%s**\n\nSee the verification artifact and step logs for test results and diagnostics.\n' \
+            "$BUILD_RESULT" "$SERVICES_RESULT" "$INSTALL_RESULT" "$CHECKS_RESULT" "$OPENAPI_RESULT" "$TESTS_RESULT" \
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload verification results
@@ -130,6 +142,8 @@ jobs:
             storage/logs/junit.xml
             storage/logs/tests.log
             storage/logs/quality-checks.log
+            storage/logs/openapi-checks.log
+            storage/logs/openapi-junit.xml
             storage/logs/infrastructure.log
             storage/logs/laravel.log
           if-no-files-found: warn

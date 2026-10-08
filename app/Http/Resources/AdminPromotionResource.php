@@ -13,16 +13,26 @@ class AdminPromotionResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id, 'code' => $this->code, 'type' => $this->type->value,
+            'id' => $this->id,
+            'code' => $this->code,
+            /** @var 'percentage'|'fixed' */
+            'type' => $this->type->value,
             'value' => $this->value,
             'minimum_cart_amount_minor' => $this->minimum_cart_amount_minor,
             'maximum_discount_minor' => $this->maximum_discount_minor,
-            'starts_at' => $this->starts_at?->toISOString(), 'expires_at' => $this->expires_at?->toISOString(),
+            /** @format date-time */
+            'starts_at' => $this->starts_at?->toISOString(),
+            /** @format date-time */
+            'expires_at' => $this->expires_at?->toISOString(),
             'global_usage_limit' => $this->global_usage_limit,
             'per_customer_usage_limit' => $this->per_customer_usage_limit,
             'is_active' => $this->is_active,
+            /** @var int */
             'redemptions_count' => $this->redemptions_count,
-            'created_at' => $this->created_at?->toISOString(), 'updated_at' => $this->updated_at?->toISOString(),
+            /** @format date-time */
+            'created_at' => $this->created_at?->toISOString(),
+            /** @format date-time */
+            'updated_at' => $this->updated_at?->toISOString(),
         ];
     }
 }

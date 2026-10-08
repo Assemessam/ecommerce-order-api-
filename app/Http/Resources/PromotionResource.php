@@ -16,14 +16,26 @@ class PromotionResource extends JsonResource
         return [
             'id' => $this->id,
             'code' => $this->code,
+            /** @var 'percentage'|'fixed' */
             'type' => $this->type->value,
+            /**
+             * Percentage in basis points: 1000 means 10 percent. Null for fixed promotions.
+             *
+             * @var int<1, 10000>|null
+             */
             'percentage_basis_points' => $this->type === PromotionType::Percentage ? $this->value : null,
             'fixed_amount' => $this->type === PromotionType::Fixed
                 ? ['amount_minor' => $this->value, 'currency' => config('catalogue.currency')] : null,
             'minimum_cart_amount' => ['amount_minor' => $this->minimum_cart_amount_minor, 'currency' => config('catalogue.currency')],
             'maximum_discount' => $this->maximum_discount_minor === null ? null
-                : ['amount_minor' => $this->maximum_discount_minor, 'currency' => config('catalogue.currency')],
+                : [
+                    /** @var int */
+                    'amount_minor' => $this->maximum_discount_minor,
+                    'currency' => config('catalogue.currency'),
+                ],
+            /** @format date-time */
             'starts_at' => $this->starts_at?->toISOString(),
+            /** @format date-time */
             'expires_at' => $this->expires_at?->toISOString(),
         ];
     }

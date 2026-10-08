@@ -9,6 +9,8 @@ use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Contracts\Repositories\PromotionRepositoryInterface;
 use App\Contracts\Repositories\UserRepositoryInterface;
 use App\Enums\InternalPermission;
+use App\Http\OpenApiDocumentTransformer;
+use App\Http\OpenApiOperationTransformer;
 use App\Http\RateLimiting\ApiRateLimiters;
 use App\Models\User;
 use App\Repositories\Eloquent\EloquentCartRepository;
@@ -18,6 +20,7 @@ use App\Repositories\Eloquent\EloquentProductRepository;
 use App\Repositories\Eloquent\EloquentPromotionRepository;
 use App\Repositories\Eloquent\EloquentUserRepository;
 use App\Services\Product\ProductCatalogueCache;
+use Dedoc\Scramble\Scramble;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
@@ -43,6 +46,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Scramble::configure()
+            ->withOperationTransformers(OpenApiOperationTransformer::class)
+            ->withDocumentTransformers(OpenApiDocumentTransformer::class);
+
         Password::defaults(fn (): Password => Password::min(12)->mixedCase()->numbers()->symbols());
 
         foreach (InternalPermission::cases() as $permission) {

@@ -25,6 +25,7 @@ class AuthController extends Controller
         return response()->json([
             'data' => [
                 'user' => new UserResource($result->user),
+                /** @var string */
                 'token' => $result->token->plainTextToken,
                 'token_type' => 'Bearer',
             ],
@@ -39,6 +40,7 @@ class AuthController extends Controller
         return response()->json([
             'data' => [
                 'user' => new UserResource($result->user),
+                /** @var string */
                 'token' => $result->token->plainTextToken,
                 'token_type' => 'Bearer',
             ],
