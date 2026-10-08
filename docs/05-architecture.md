@@ -36,6 +36,8 @@ API Resources shape successful responses. A central exception renderer converts 
 - Own transactions that span a complete business workflow.
 - `CheckoutService` owns checkout; `OrderService` owns cancellation.
 
+Authentication and administrative product/promotion use cases receive the seven immutable application inputs documented in [the DTO guide](../app/DTOs/README.md), added in `16faf77`. Controllers construct them from validated Form Request data. Update DTOs preserve omitted-versus-null semantics and product stock deltas; services retain policy checks, business rules, and transactions. Repository interfaces and the checkout/cancellation lock protocols are unchanged by this refactor.
+
 ### Repositories
 
 - Implement domain-specific persistence contracts.

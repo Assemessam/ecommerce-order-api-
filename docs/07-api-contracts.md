@@ -5,8 +5,8 @@
 - Base path: `/api` as required (no version prefix in the assessment contract).
 - Media type: `application/json`; clients send `Accept: application/json`.
 - Timestamps: ISO 8601 UTC strings.
-- Money: objects with integer `amount_minor` and 3-letter `currency`; requests never submit authoritative totals.
-- Product collection page size defaults to 15 and is capped at 100 (implemented); the same limits remain proposed for future collections.
+- Money: product prices and cart/order totals use objects with integer `amount_minor` and 3-letter `currency`. Order-item snapshots and administrative inputs expose the documented integer `_minor` fields; promotion `value` uses minor units for fixed discounts and basis points for percentages. Checkout never accepts client-supplied authoritative totals.
+- Product, order, and administrative collection page sizes default to 15 and are capped at 100.
 - Protected routes use `Authorization: Bearer <token>`.
 
 ## Response envelopes

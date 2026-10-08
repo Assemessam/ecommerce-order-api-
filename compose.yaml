@@ -25,6 +25,7 @@ x-app-runtime: &app-runtime
 services:
   api:
     <<: *app-runtime
+    command: ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000", "--no-reload", "--no-interaction"]
     ports:
       - "${APP_PORT:-8091}:8000"
 
@@ -53,6 +54,8 @@ services:
 
   postgres:
     image: postgres:17-alpine
+    ports:
+      - "127.0.0.1:${DB_FORWARD_PORT:-15433}:5432"
     environment:
       POSTGRES_DB: ecommerce_order_api
       POSTGRES_USER: ecommerce

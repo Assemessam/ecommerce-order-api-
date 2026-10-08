@@ -1,6 +1,8 @@
 # Unified ProductService and Spatie RBAC refactor
 
-Implementation date: **October 7, 2026** (Africa/Cairo). This approved follow-up consolidates product application services and replaces boolean administration with a small permission-based model. Earlier milestone/audit documents retain their historical evidence. In particular, the local `docs/18-structural-integrity-audit.md` is preserved unchanged and excluded from the refactor commit; its separate ProductAdministrationService and boolean-authorization findings describe the pre-refactor state.
+Implementation date: **October 7, 2026** (Africa/Cairo). This approved follow-up consolidates product application services and replaces boolean administration with a small permission-based model. Earlier milestone/audit documents retain their historical evidence. At the time of this refactor, `docs/18-structural-integrity-audit.md` was preserved unchanged and excluded from the refactor commit; its separate ProductAdministrationService and boolean-authorization findings describe the pre-refactor state.
+
+**Later release status:** this report preserves the refactor-time method signatures and test evidence. Commit `16faf77` subsequently replaced authentication and admin product/promotion array inputs with [seven typed DTOs](../app/DTOs/README.md); `3043567` made the rate-limit fixture PSR-4 compliant. The [structural audit's superseding status](18-structural-integrity-audit.md#superseding-release-status--october-8-2026) identifies the final architecture and later verification. The audit was excluded from the original refactor commit and is now included with that status clarification.
 
 ## Git and baseline
 
