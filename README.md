@@ -2,6 +2,8 @@
 
 Laravel REST API for a Senior Laravel Developer assessment: product discovery, customer authentication, carts, promotions, atomic checkout, historical orders, and cancellation. The implementation prioritizes exact money calculations, customer isolation, and PostgreSQL concurrency correctness. Submission deadline: October 13, 2026.
 
+The project is published at [Assemessam/ecommerce-order-api-](https://github.com/Assemessam/ecommerce-order-api-). An independent review of published `main` at `834c17c97dbf77900369f9db1722f611376ad31e` reported **1,218 passing tests and 7,210 assertions**, including PostgreSQL/Redis integration and concurrency coverage. It also confirmed a successful fresh Docker installation, demo seeding, valid Postman artifacts, successful Newman workflow and negative-scenario runs, and no known Composer dependency vulnerabilities. These are the independent review's results for that commit; older milestone reports below retain their historical counts.
+
 The ProductService and Spatie RBAC implementation, permission matrix, migration/provisioning procedure, and historical verification are in [docs/19-product-service-rbac-refactor.md](docs/19-product-service-rbac-refactor.md). The [DTO guide](app/DTOs/README.md) describes the later typed application inputs. The [structural integrity audit](docs/18-structural-integrity-audit.md) preserves its October 7 findings and identifies the superseding release architecture and verification. The [October 6 submission review](docs/18-final-submission-review.md) and earlier milestone reports remain historical evidence: [mandatory scope](docs/13-final-audit.md), [administration](docs/14-admin-management.md), [catalogue caching](docs/15-redis-caching.md), [order events/queues](docs/16-order-events-queues.md), and [API rate limiting](docs/17-api-rate-limiting.md). The separate employer brief is not present in this repository; the earlier submission review uses the supplied assessment summary and [the recorded requirements](docs/02-requirements.md).
 
 ## Stack and prerequisites
@@ -15,7 +17,7 @@ The ProductService and Spatie RBAC implementation, permission matrix, migration/
 ## Installation and database setup
 
 ```bash
-git clone <repository-url> ecommerce-order-api
+git clone https://github.com/Assemessam/ecommerce-order-api-.git ecommerce-order-api
 cd ecommerce-order-api
 cp .env.example .env
 docker compose build api
@@ -28,12 +30,14 @@ docker compose run --rm api php artisan db:seed --class=PromotionSeeder --no-int
 docker compose up -d api
 ```
 
-Compose starts its healthy PostgreSQL and dedicated Redis dependencies automatically. The API listens at **http://localhost:8091** by default:
+Compose starts its healthy PostgreSQL and dedicated Redis dependencies automatically. The API is available at **http://localhost:8091** by default, with the forwarded host port bound only to localhost (`127.0.0.1:${APP_PORT:-8091}:8000`):
 
 ```bash
 curl -H 'Accept: application/json' http://localhost:8091/api/health
 # {"data":{"status":"ok"}}
 ```
+
+The container still listens on `0.0.0.0:8000` for Docker-internal communication, and the Postman environment continues to use `http://localhost:8091`. For explicit access from another machine, change only the API port mapping in `compose.yaml` to `0.0.0.0:${APP_PORT:-8091}:8000` (or a specific host interface), then recreate the API with `docker compose up -d api`. Set `APP_URL` and client URLs to the reachable address and restrict access with your host firewall; this exposes a development server and should be limited to a trusted development network.
 
 On Linux the bind-mounted files must be writable by the container user (default UID/GID 1000). Override the Compose user for one-off setup commands with `--user "$(id -u):$(id -g)"` if your host IDs differ. No production web server is included: `artisan serve` is a development runtime.
 
@@ -118,6 +122,8 @@ A dedicated Redis connection uses DB 6 / its own key prefix, 0.2-second connect/
 
 ## Tests and quality checks
 
+Local regression verification for the CI/security update on October 8, 2026 passed **1,218 tests and 7,210 assertions** with `docker compose exec -T api php artisan test --compact`. Separate sequential reruns of the seven standalone concurrency suites below passed **40 tests and 806 assertions**; those tests are also included in the full suite. These are new local runs, separate from the independent review of the published commit and from GitHub-hosted CI.
+
 Run database suites **sequentially**. The contention tests use committed fixtures and migration teardown, so concurrent suite invocations against the same test database are unsupported. Do not use `--parallel` with the guarded single-database configuration.
 
 ```bash
@@ -156,7 +162,25 @@ HTTP/service/repository/constraint tests use real PostgreSQL; the calculator is 
 
 The complete suite requires the project Redis service. Rate limiting stays enabled with a new UUID prefix in Redis DB 7 for each test; HTTP child processes share that prefix and cleanup deletes only its keys. Existing tests disable catalogue caching by default; caching tests explicitly enable it with a unique namespace in Redis DB 3. Cleanup deletes only that namespace's keys and never calls FLUSHDB/FLUSHALL. The benchmark uses 25 uncached and 25 warm samples per listing variant, reports actual timings and product query counts, and removes its PostgreSQL/Redis fixtures. Local measurements are not production capacity estimates. Redis-enabled independent-process concurrency verification is described in [the bonus report](docs/15-redis-caching.md).
 
-RBAC coverage includes exact role/permission mappings, legacy backfill, registration/mass-assignment protection, current permissions on existing tokens and reused users, inventory authorization, all-staff customer ownership, local provisioning, and role-independent rate budgets. Spatie metadata uses the isolated in-memory `array` cache store; it never shares the catalogue, queue, or limiter Redis connection. See [the current verification record](docs/19-product-service-rbac-refactor.md).
+RBAC coverage includes exact role/permission mappings, legacy backfill, registration/mass-assignment protection, current permissions on existing tokens and reused users, inventory authorization, all-staff customer ownership, local provisioning, and role-independent rate budgets. Spatie metadata uses the isolated in-memory `array` cache store; it never shares the catalogue, queue, or limiter Redis connection. See [the historical refactor verification record](docs/19-product-service-rbac-refactor.md).
+
+### GitHub Actions CI
+
+The [PostgreSQL and Redis regression workflow](.github/workflows/ci.yml) runs on pushes to `main`, pull requests targeting `main`, and manual workflow dispatch. It builds the committed Dockerfile's PHP 8.5/Composer runtime and uses the existing Compose PostgreSQL 17 and Redis 7.4 services on an ephemeral GitHub runner. Each run has its own Compose project, fresh database volume, runner UID/GID, testing configuration, and generated application key. Health checks and explicit database/Redis readiness checks run before verification; the initialization SQL provisions the guarded `ecommerce_order_api_test` database.
+
+The workflow verifies platform requirements, strict Composer validation, locked dependency security, and Pint formatting, then runs the complete regression suite **sequentially**, including all seven concurrency suites, against real PostgreSQL and Redis. Existing test safeguards and isolated Redis DBs 3 (catalogue), 5 (order events), and 7 (rate limiting) remain enabled. The exact CI test command is:
+
+```bash
+docker compose run --rm --no-deps -T \
+  -e DB_DATABASE=ecommerce_order_api_test api \
+  php artisan test --compact --ci --log-junit=storage/logs/junit.xml
+```
+
+CI uses `contents: read` permissions and commit-pinned checkout/artifact actions. It uses local runner services, local-only service credentials, and an ephemeral application key; retains JUnit, test and quality-check logs plus failure diagnostics for seven days; writes a job summary; and cleans up its own Compose resources. The job has a 30-minute timeout and performs no deployment.
+
+A local rehearsal on October 8, 2026 executed the workflow's setup, quality checks, and exact test command from a fresh checkout with a separate Compose project and fresh database volume. It passed **1,218 tests and 7,210 assertions**; its JUnit report, diagnostics, summary, and isolated cleanup were also verified. Actionlint, YAML parsing, and shell syntax checks passed.
+
+**GitHub-hosted verification remains pending.** Local tests and workflow validation do not establish a hosted pass. After approved publication, open a pull request targeting `main` and inspect the workflow's job, summary, and artifacts in [GitHub Actions](https://github.com/Assemessam/ecommerce-order-api-/actions). A push to `main` also triggers verification; once the workflow is present on `main`, it can be started manually with **Run workflow**.
 
 ## API documentation and Postman
 
@@ -272,14 +296,14 @@ Product POST accepts name, SKU, price_minor and optional description, stock_quan
 
 Promotion POST/PATCH use the existing percentage basis points/fixed minor-unit value, caps, validity, usage limits and is_active flag. Example PATCH: `{"type":"fixed","value":500,"is_active":false}`. Partial changes are checked against retained fields under the promotion lock. Supplied non-null limits below consumed global/largest individual customer usage return 409; equality is allowed and exhausts eligibility, null removes the limit. Edits affect future checkout; order snapshots and redemptions are preserved. Retirement uses deactivation; no hard-delete routes exist.
 
-Both public and administrative product controllers use the unified `ProductService`; `ProductAdministrationService` has been removed. Explicit public/admin method names preserve public active visibility and authoritative inactive admin reads. `ProductCatalogueCache` remains separate, and ProductService schedules mutation invalidation after commit. Transactions lock only the affected Product or Promotion row, with bounded retries. Checkout/cancellation retain their original lock order, calculations and ledger rules. Independent PHP/PostgreSQL contention tests use domain manager actors and preserve both queued orders for stock changes, cancellation restoration, usage-limit reductions, and discount changes. Current architecture and evidence are in [docs/19-product-service-rbac-refactor.md](docs/19-product-service-rbac-refactor.md); [Bonus 7A](docs/14-admin-management.md) retains its original historical evidence.
+Both public and administrative product controllers use the unified `ProductService`; `ProductAdministrationService` has been removed. Explicit public/admin method names preserve public active visibility and authoritative inactive admin reads. `ProductCatalogueCache` remains separate, and ProductService schedules mutation invalidation after commit. Transactions lock only the affected Product or Promotion row, with bounded retries. Checkout/cancellation retain their original lock order, calculations and ledger rules. Independent PHP/PostgreSQL contention tests use domain manager actors and preserve both queued orders for stock changes, cancellation restoration, usage-limit reductions, and discount changes. Current architecture and historical refactor evidence are in [docs/19-product-service-rbac-refactor.md](docs/19-product-service-rbac-refactor.md); [Bonus 7A](docs/14-admin-management.md) retains its original historical evidence.
 
 ## Trade-offs and known limitations
 
 - No payment processing/refunds, shipping/tax integrations, admin order management, frontend, email verification/recovery, or additional lifecycle states.
 - One currency, one cart/customer, one promotion/order, no inventory reservation, and bounded signed-bigint amounts. JavaScript clients must use lossless JSON handling for integers above 2^53−1.
 - Popular product/promotion rows serialize short transactions. Substring search has no trigram index; ledger counts grow with history. No production-scale benchmark or universal deadlock-freedom claim is made.
-- Per-customer usage enforcement has PostgreSQL sequential coverage and shares the tested promotion/cart locks; the harness does not isolate a concurrent per-customer-only limit scenario.
+- Per-customer limits have sequential usage and concurrent admin limit-reduction coverage. A separate checkout-versus-checkout scenario with no global limit, sufficient stock, distinct keys, and overlapping exhausted/eligible customers remains a coverage follow-up; same-customer requests may instead serialize to an empty cart or replay. Review found no correctness defect.
 - Snapshot immutability, redemption identity consistency, and inventory restoration semantics assume supported service writers; privileged SQL can bypass them. Legacy redemption rows may have NULL order_id. Retention/account deletion policy is undecided; purchase-history foreign keys restrict deletion.
 - The cancellation migration cannot downgrade while cancelled history exists: the earlier placed-only schema cannot represent it. Use forward fixes for retained data.
 - Dropping the Spatie schema loses role/permission assignments. Rolling back and reapplying the bootstrap can regrant revoked Administrator roles to retained legacy `is_admin=true` users; returning to old boolean-authorizing code can also revive stale flags. Use forward fixes. Provisioning commands are local-only, so production operator provisioning remains a separate workflow.
@@ -287,4 +311,4 @@ Both public and administrative product controllers use the unified `ProductServi
 - Category-based throttles and indefinite customer tokens are explicit assessment policies. Limiter outages fail closed with 503; Redis eviction/restarts reset allowances and fixed windows permit boundary bursts. Production infrastructure, TLS, managed secrets, backups, and broader abuse controls require a separate operational review.
 - Demo seeders preserve existing edits and promotion validity windows rather than resetting the database; see the [rerun rules](database/seeders/README.md#reruns-and-preservation) before repairing manually changed fixtures.
 
-The ProductService/RBAC refactor was developed on `feature/product-service-rbac-refactor` from `bb6f50f` for integration into `release/ecommerce-assessment-final`. Review its verification and remaining limits in [docs/19-product-service-rbac-refactor.md](docs/19-product-service-rbac-refactor.md); the earlier submission rehearsal remains in [docs/18-final-submission-review.md](docs/18-final-submission-review.md). Release review stops before pushing, merging to main, deployment, or submission.
+Historical development note: the ProductService/RBAC refactor was developed on `feature/product-service-rbac-refactor` from `bb6f50f` for the earlier `release/ecommerce-assessment-final` integration. The project is now published on `main`. The refactor's verification and remaining limits are preserved in [docs/19-product-service-rbac-refactor.md](docs/19-product-service-rbac-refactor.md); the earlier submission rehearsal remains in [docs/18-final-submission-review.md](docs/18-final-submission-review.md).
