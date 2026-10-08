@@ -37,7 +37,9 @@ curl -H 'Accept: application/json' http://localhost:8091/api/health
 
 On Linux the bind-mounted files must be writable by the container user (default UID/GID 1000). Override the Compose user for one-off setup commands with `--user "$(id -u):$(id -g)"` if your host IDs differ. No production web server is included: `artisan serve` is a development runtime.
 
-The additive RBAC migrations create Spatie's five standard tables, bootstrap three internal roles and seven permissions, and backfill only existing `is_admin=true` users as Administrator. They create no user accounts. `AuthorizationSeeder` can idempotently restore the canonical role/permission definitions without granting users roles. Ordinary customers have no internal role.
+The additive RBAC migrations create Spatie's five standard tables, bootstrap three internal roles and seven permissions, and backfill only existing `is_admin=true` users as Administrator. They create no user accounts. The default `DatabaseSeeder` runs only `AuthorizationSeeder`, which can idempotently restore the canonical role/permission definitions without granting users roles. Ordinary customers have no internal role.
+
+For an interconnected local demonstration, configure a private `DEMO_SEED_PASSWORD` in `.env`, then run `docker compose exec -T api php artisan db:seed --class=DemoDatabaseSeeder --no-interaction`. This opt-in local/testing PostgreSQL dataset includes eight accounts, sixteen products, nine promotions, five carts, and seven genuine purchases including a cancellation. The [seeding guide](database/seeders/README.md) documents the complete table inventory, credentials, fixtures, repeatability, read-only inspection commands, and Postman usage.
 
 ### Environment
 
@@ -45,6 +47,7 @@ The additive RBAC migrations create Spatie's five standard tables, bootstrap thr
 |---|---|
 | `APP_KEY` | Generated above; never commit it |
 | `APP_ENV`, `APP_DEBUG` | Local defaults; use production / false outside development |
+| `DEMO_SEED_PASSWORD` | Private local-only password for new opt-in demo accounts; no default; 12–72 bytes without NUL |
 | `APP_URL`, `APP_PORT` | Default host URL and port 8091; change both when changing the port |
 | `CATALOGUE_CURRENCY` | One uppercase three-letter currency label; defaults to USD; no currency conversion |
 | `DB_*` | Compose explicitly supplies pgsql / postgres:5432 / ecommerce_order_api / ecommerce / local-only password `secret` |
@@ -86,7 +89,7 @@ Only `GET /api/products` (and its HEAD route) uses this cache. The service store
 
 Listings are short-lived estimates. A request already in flight may return its earlier read; failed invalidation or process failure after commit can leave earlier entries reachable until their short TTL expires. Generation changes prevent a late old reader from publishing into the current namespace. Redis outages fall back to PostgreSQL without exposing connection details or changing committed purchase results. Warnings are limited to one per namespace/minute per application filesystem; subsequent cache attempts are skipped for that request. Checkout prices, stock, locks, snapshots, promotions, and idempotency remain authoritative in PostgreSQL. Set `CATALOGUE_CACHE_ENABLED=false` and clear cached configuration to disable listing caching.
 
-Do not reset the development database or modify `postgres-local` or unrelated Docker projects. A second checkout must use a distinct Compose project name, API port (`APP_PORT`/`APP_URL`), and `DB_FORWARD_PORT` to avoid sharing volumes or conflicting with published ports. The optional sample seeders insert six products and seven promotions without resetting prices, stock, customers, or existing promotions. Register your own customer through the API; the default `DatabaseSeeder` creates a fixed demo customer and is deliberately not part of this setup.
+Do not reset the development database or modify `postgres-local` or unrelated Docker projects. A second checkout must use a distinct Compose project name, API port (`APP_PORT`/`APP_URL`), and `DB_FORWARD_PORT` to avoid sharing volumes or conflicting with published ports. The optional sample seeders insert six products and seven promotions without resetting prices, stock, customers, or existing promotions. Register your own customer through the API or explicitly opt in to the separate `DemoDatabaseSeeder`; the default `DatabaseSeeder` creates no accounts.
 
 ## Order events and background workers (Bonus 7C)
 
@@ -282,6 +285,6 @@ Both public and administrative product controllers use the unified `ProductServi
 - Dropping the Spatie schema loses role/permission assignments. Rolling back and reapplying the bootstrap can regrant revoked Administrator roles to retained legacy `is_admin=true` users; returning to old boolean-authorizing code can also revive stale flags. Use forward fixes. Provisioning commands are local-only, so production operator provisioning remains a separate workflow.
 - The initial stable `user:<id>` limiter rollout does not reuse old authenticated counters. Coordinate the one-minute transition; subsequent role changes preserve allowance.
 - Category-based throttles and indefinite customer tokens are explicit assessment policies. Limiter outages fail closed with 503; Redis eviction/restarts reset allowances and fixed windows permit boundary bursts. Production infrastructure, TLS, managed secrets, backups, and broader abuse controls require a separate operational review.
-- The default customer seeder is not repeatable; use registration and the two explicit repeatable sample seeders above.
+- Demo seeders preserve existing edits and promotion validity windows rather than resetting the database; see the [rerun rules](database/seeders/README.md#reruns-and-preservation) before repairing manually changed fixtures.
 
 The ProductService/RBAC refactor was developed on `feature/product-service-rbac-refactor` from `bb6f50f` for integration into `release/ecommerce-assessment-final`. Review its verification and remaining limits in [docs/19-product-service-rbac-refactor.md](docs/19-product-service-rbac-refactor.md); the earlier submission rehearsal remains in [docs/18-final-submission-review.md](docs/18-final-submission-review.md). Release review stops before pushing, merging to main, deployment, or submission.

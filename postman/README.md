@@ -33,7 +33,7 @@ curl -H 'Accept: application/json' http://localhost:8091/api/health
 
 The health response is `{"data":{"status":"ok"}}`. Compose starts this project's PostgreSQL and Redis services as dependencies. Its HTTP mapping is `${APP_PORT:-8091}:8000`; the imported `base_url` is `http://localhost:8091`, without `/api` or a trailing slash. If you configured another `APP_PORT`, update `base_url` and `APP_URL` accordingly. Use the host-facing HTTP port, not PostgreSQL's forwarded port or a Docker service hostname. `localhost` targets the machine running Postman's desktop agent; use your Docker host's reachable address when it is remote.
 
-The workflow creates its own products and promotions, so seeding is unnecessary. Additive `migrate` is sufficient to bootstrap the internal roles and permissions. Do not reset the database or remove persistent volumes for Postman testing. The default `DatabaseSeeder` creates a customer and is not repeatable. Optional sample catalogue fixtures, if wanted for manual browsing, are:
+The workflow creates its own products and promotions, so seeding is unnecessary. Additive `migrate` is sufficient to bootstrap the internal roles and permissions. Do not reset the database or remove persistent volumes for Postman testing. The default `DatabaseSeeder` restores only the canonical authorization definitions and creates no accounts. Optional sample catalogue fixtures, if wanted for manual browsing, are:
 
 ```bash
 docker compose exec -T api php artisan db:seed --class=ProductSeeder --no-interaction
@@ -76,6 +76,14 @@ docker compose exec -T api php artisan roles:revoke your-product-manager@example
 ```
 
 Log in each account and save its returned `data.token` into the matching local `product_manager_token` or `promotion_manager_token`, then use **Optional RBAC Boundaries**. Product Manager can read/create/update products and adjust inventory; Promotion Manager can read/create/update promotions. Administrator has both sets of permissions. The two optional 403 checks require separate accounts with only the stated role; combined roles correctly grant both sets. Staff still cannot access another customer's cart or orders.
+
+### Use optional seeded accounts
+
+The [local seeding guide](../database/seeders/README.md) provides an explicitly opt-in `DemoDatabaseSeeder` with staff accounts, customers, a catalogue, promotions, carts, and order history. Configure a private `DEMO_SEED_PASSWORD` in `.env` and follow its Docker commands. The password is used only when an account is first created; rerunning the seeder does not reset existing passwords or roles.
+
+For the seeded administrator, set local `admin_email` to `demo-admin@example.test`, set `admin_password` to your configured password, and send **Login admin**. Skip **Register admin setup account** and the CLI grant for that already provisioned account. For an existing demo customer, set `customer_email` to `demo-lina@example.test` or another documented identity, set `customer_password`, and send **Login customer**, skipping registration. Lina's cart contains two available products; Noah's contains a low-stock tripod and an eligible fixed promotion. Alex, Maya, and Omar provide committed order histories.
+
+Locate products by their `DEMO-V1-` SKUs in returned listings and use their actual IDs; preserve the collection's dynamic captures. Manual promotion examples can use `DEMO-V1-WELCOME10` or `DEMO-V1-SAVE5`; `DEMO-V1-EXPIRED10` is available for an explicitly ineligible scenario. The seeded manager accounts can supply the two optional role-boundary tokens. The ordered workflow may reuse the seeded administrator credentials and continues to generate its own customer, products, promotions, and purchase. Its registration script replaces customer credentials intentionally, so use individual login requests when inspecting existing demo customers. No collection or environment contract changes are required.
 
 ## 3. Run the ordered workflow
 
