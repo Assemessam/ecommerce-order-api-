@@ -168,7 +168,7 @@ RBAC coverage includes exact role/permission mappings, legacy backfill, registra
 
 The [PostgreSQL and Redis regression workflow](.github/workflows/ci.yml) runs on pushes to `main`, pull requests targeting `main`, and manual workflow dispatch. It builds the committed Dockerfile's PHP 8.5/Composer runtime and uses the existing Compose PostgreSQL 17 and Redis 7.4 services on an ephemeral GitHub runner. Each run has its own Compose project, fresh database volume, runner UID/GID, testing configuration, and generated application key. Health checks and explicit database/Redis readiness checks run before verification; the initialization SQL provisions the guarded `ecommerce_order_api_test` database.
 
-The workflow verifies platform requirements, strict Composer validation, locked dependency security, and Pint formatting, then runs the complete regression suite **sequentially**, including all seven concurrency suites, against real PostgreSQL and Redis. Existing test safeguards and isolated Redis DBs 3 (catalogue), 5 (order events), and 7 (rate limiting) remain enabled. The exact CI test command is:
+The workflow verifies platform requirements, strict Composer validation, locked dependency security, and Pint formatting. Its OpenAPI gate migrates only the isolated test database, exports the specification with strict inference checks, runs focused documentation/contract tests, and fails if the committed export is stale. It then runs the complete regression suite **sequentially**, including all seven concurrency suites, against real PostgreSQL and Redis. Existing test safeguards and isolated Redis DBs 3 (catalogue), 5 (order events), and 7 (rate limiting) remain enabled. The exact CI test command is:
 
 ```bash
 docker compose run --rm --no-deps -T \
@@ -180,7 +180,31 @@ CI uses `contents: read` permissions and commit-pinned checkout/artifact actions
 
 A local rehearsal on October 8, 2026 executed the workflow's setup, quality checks, and exact test command from a fresh checkout with a separate Compose project and fresh database volume. It passed **1,218 tests and 7,210 assertions**; its JUnit report, diagnostics, summary, and isolated cleanup were also verified. Actionlint, YAML parsing, and shell syntax checks passed.
 
-**GitHub-hosted verification remains pending.** Local tests and workflow validation do not establish a hosted pass. After approved publication, open a pull request targeting `main` and inspect the workflow's job, summary, and artifacts in [GitHub Actions](https://github.com/Assemessam/ecommerce-order-api-/actions). A push to `main` also triggers verification; once the workflow is present on `main`, it can be started manually with **Run workflow**.
+The [GitHub-hosted regression run on `main`](https://github.com/Assemessam/ecommerce-order-api-/actions/runs/37792071884) passed for `bafe9e1e1ea3bab2b837e4e1138c2626926d6a10` after the CI pull request was merged on October 8, 2026. Hosted verification of the later OpenAPI integration remains pending until this branch is reviewed and published. Inspect future jobs, summaries, and artifacts in [GitHub Actions](https://github.com/Assemessam/ecommerce-order-api-/actions); the workflow also supports manual **Run workflow**.
+
+## OpenAPI and interactive documentation
+
+Scramble **0.13.47** generates the **OpenAPI 3.1** contract and the interactive Stoplight Elements interface from the existing Laravel API. It covers all 25 operations, their bearer authentication, JSON schemas, examples, success statuses, and relevant errors.
+
+- Interactive documentation: **http://localhost:8091/docs/api**.
+- Generated JSON: **http://localhost:8091/docs/api.json**.
+- Version-controlled export: [docs/openapi.json](docs/openapi.json).
+- Coverage comparison, schema details, and usage: [OpenAPI guide](docs/20-openapi.md).
+
+For an existing configured installation, start the application with `docker compose up -d api`. For a new installation, follow [the installation commands above](#installation-and-database-setup), preserving any existing `.env` and application key. The documented URLs use the default `APP_PORT`; use your configured port when it differs. The specification's relative `/api` server uses the documentation page's actual origin and port.
+
+Register or log in through **Authentication**, copy `data.token`, and enter **only the token**, without the `Bearer ` prefix, into the bearer authentication input for an authenticated operation. The interface builds `Authorization: Bearer <token>` for **Try It Out**. Customer endpoints use that user's cart and orders. Administrative endpoints additionally require their actual Spatie permissions; grant an existing local staff account a role with `docker compose exec -T api php artisan roles:grant your-staff@example.test administrator --no-interaction`, then log in as that account. `product_manager` and `promotion_manager` grant their corresponding administrative permissions. There is no role-assignment REST endpoint.
+
+Both documentation routes are accessible **only when `APP_ENV=local`**; testing, staging, and production receive 403, even with a bearer token or `APP_DEBUG=true`. These restrictions do not affect the committed public contract. Stoplight's browser assets load from its CDN, so interactive rendering requires network access.
+
+Regenerate after API changes, then verify the contract against the guarded PostgreSQL/Redis test environment:
+
+```bash
+docker compose exec -T api php artisan scramble:export --path=docs/openapi.json --fail-on-unknown --no-interaction
+docker compose exec -T api php artisan test --compact tests/Feature/OpenApiDocumentationTest.php
+```
+
+The export is generated rather than maintained independently. OpenAPI describes the contract; the existing Postman collection executes complete workflows and negative regression scenarios. Keep bearer tokens and private credentials out of both exported artifacts.
 
 ## API documentation and Postman
 

@@ -18,14 +18,17 @@ class CartItemResource extends JsonResource
             'quantity' => $this->quantity,
             'unit_price' => [
                 'amount_minor' => $this->product->price_minor,
+                /** @var string */
                 'currency' => config('catalogue.currency'),
             ],
             'line_subtotal' => [
                 'amount_minor' => $this->subtotalMinor,
+                /** @var string */
                 'currency' => config('catalogue.currency'),
             ],
             'availability' => [
                 'is_available' => $this->isAvailable,
+                /** @var 'inactive'|'out_of_stock'|'insufficient_stock'|null */
                 'reason' => $this->unavailableReason,
                 'available_quantity' => $this->product->stock_quantity,
             ],
