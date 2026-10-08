@@ -1,0 +1,143 @@
+name: PostgreSQL and Redis regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regression-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    name: PHP 8.5 / PostgreSQL 17 / Redis 7
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      COMPOSE_PROJECT_NAME: ecommerce-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      COMPOSE_ANSI: never
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare isolated test configuration
+        run: |
+          cp .env.example .env
+          sed -i \
+            -e 's/^APP_ENV=.*/APP_ENV=testing/' \
+            -e 's/^APP_DEBUG=.*/APP_DEBUG=false/' \
+            -e 's/^DB_DATABASE=.*/DB_DATABASE=ecommerce_order_api_test/' \
+            -e 's/^CATALOGUE_REDIS_DB=.*/CATALOGUE_REDIS_DB=3/' \
+            -e 's/^ORDER_EVENTS_REDIS_DB=.*/ORDER_EVENTS_REDIS_DB=5/' \
+            -e 's/^ORDER_EVENTS_QUEUE=.*/ORDER_EVENTS_QUEUE=order-events-testing/' \
+            -e 's/^RATE_LIMIT_REDIS_DB=.*/RATE_LIMIT_REDIS_DB=7/' \
+            -e "s/^REDIS_PREFIX=.*/REDIS_PREFIX=${COMPOSE_PROJECT_NAME}-/" \
+            .env
+          printf '\nUID=%s\nGID=%s\n' "$(id -u)" "$(id -g)" >> .env
+          mkdir -p storage/logs storage/framework/{cache/data,sessions,views} bootstrap/cache
+          docker compose config --quiet
+
+      - name: Build committed PHP and Composer runtime
+        id: build
+        run: docker compose build --pull api
+
+      - name: Start PostgreSQL and Redis and verify test database
+        id: services
+        run: |
+          docker compose up --wait --wait-timeout 120 postgres redis
+          test_database=$(docker compose exec -T postgres \
+            psql -U ecommerce -d ecommerce_order_api_test -At -v ON_ERROR_STOP=1 \
+            -c 'SELECT current_database()')
+          test "$test_database" = ecommerce_order_api_test
+          test "$(docker compose exec -T redis redis-cli ping)" = PONG
+
+      - name: Install locked dependencies and generate ephemeral application key
+        id: install
+        run: |
+          docker compose run --rm --no-deps -T \
+            -e DB_DATABASE=ecommerce_order_api_test api \
+            composer install --no-interaction --prefer-dist --optimize-autoloader --no-progress
+          docker compose run --rm --no-deps -T \
+            -e DB_DATABASE=ecommerce_order_api_test api \
+            php artisan key:generate --no-interaction
+          app_key=$(sed -n 's/^APP_KEY=//p' .env)
+          echo "::add-mask::$app_key"
+          docker compose run --rm --no-deps -T \
+            -e DB_DATABASE=ecommerce_order_api_test api \
+            php artisan config:clear --no-interaction
+
+      - name: Check platform, Composer metadata, dependency security and formatting
+        id: checks
+        run: |
+          docker compose run --rm --no-deps -T \
+            -e DB_DATABASE=ecommerce_order_api_test api sh -euc '
+              composer check-platform-reqs --no-interaction
+              composer validate --strict --no-interaction
+              composer audit --locked --no-interaction
+              vendor/bin/pint --test
+            ' 2>&1 | tee storage/logs/quality-checks.log
+
+      - name: Run complete regression suite sequentially
+        id: tests
+        run: |
+          docker compose run --rm --no-deps -T \
+            -e DB_DATABASE=ecommerce_order_api_test api \
+            php artisan test --compact --ci --log-junit=storage/logs/junit.xml \
+            2>&1 | tee storage/logs/tests.log
+
+      - name: Collect failure diagnostics
+        if: failure()
+        run: |
+          if test -f .env; then
+            mkdir -p storage/logs
+            {
+              docker compose ps --all
+              docker compose logs --no-color --tail=200 postgres redis
+            } 2>&1 | tee storage/logs/infrastructure.log
+          fi
+
+      - name: Summarize verification
+        if: always()
+        env:
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          SERVICES_RESULT: ${{ steps.services.outcome }}
+          INSTALL_RESULT: ${{ steps.install.outcome }}
+          CHECKS_RESULT: ${{ steps.checks.outcome }}
+          TESTS_RESULT: ${{ steps.tests.outcome }}
+        run: |
+          printf 'PHP runtime build: **%s**\n\nPostgreSQL/Redis readiness: **%s**\n\nLocked dependencies and application key: **%s**\n\nPlatform, Composer validation/audit and Pint: **%s**\n\nComplete sequential regression suite: **%s**\n\nSee the verification artifact and step logs for test results and diagnostics.\n' \
+            "$BUILD_RESULT" "$SERVICES_RESULT" "$INSTALL_RESULT" "$CHECKS_RESULT" "$TESTS_RESULT" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload verification results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: regression-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            storage/logs/junit.xml
+            storage/logs/tests.log
+            storage/logs/quality-checks.log
+            storage/logs/infrastructure.log
+            storage/logs/laravel.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Clean up isolated CI resources
+        if: always()
+        run: |
+          if test -f .env; then
+            docker compose down --volumes --remove-orphans --timeout 30
+          fi
